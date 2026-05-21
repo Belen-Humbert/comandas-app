@@ -82,23 +82,23 @@ export default function TablesPage() {
       {loading ? (
         <div className="flex items-center justify-center h-64 text-gray-400">Cargando...</div>
       ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-7 lg:grid-cols-8 gap-3">
           {tableList.map(table => (
             <button
               key={table.id}
               onClick={() => handleTableClick(table)}
-              className={`relative aspect-square rounded-xl border-2 flex flex-col items-center justify-center p-3 transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 ${getTableColor(table)}`}
+              className={`relative aspect-square rounded-lg border-2 flex flex-col items-center justify-center p-2 transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 ${getTableColor(table)}`}
             >
-              <span className="text-2xl font-bold">{table.number}</span>
-              <span className="text-xs font-medium opacity-90 mt-1">{table.name}</span>
+              <span className="text-lg font-bold leading-none">{table.number}</span>
+              <span className="text-[10px] font-medium opacity-90 mt-0.5 leading-none">{table.name}</span>
               {table.status === 'occupied' && (
-                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 text-xs opacity-90">
-                  <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{table.persons_count}</span>
-                  {table.item_count > 0 && <span className="flex items-center gap-0.5"><Utensils className="w-3 h-3" />{table.item_count}</span>}
+                <div className="absolute bottom-1.5 left-0 right-0 flex justify-center gap-1.5 text-[10px] opacity-90">
+                  <span className="flex items-center gap-0.5"><Users className="w-2.5 h-2.5" />{table.persons_count}</span>
+                  {table.item_count > 0 && <span className="flex items-center gap-0.5"><Utensils className="w-2.5 h-2.5" />{table.item_count}</span>}
                 </div>
               )}
               {table.status === 'free' && (
-                <span className="text-xs opacity-75 mt-1">{table.capacity} pers.</span>
+                <span className="text-[10px] opacity-75 mt-0.5 leading-none">{table.capacity} pers.</span>
               )}
             </button>
           ))}
@@ -106,10 +106,10 @@ export default function TablesPage() {
       )}
 
       {/* Legend */}
-      <div className="mt-8 flex gap-6 text-sm text-gray-600">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-green-500" /> Libre</div>
-        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-red-500" /> Ocupada</div>
-        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-yellow-400" /> Reservada</div>
+      <div className="mt-6 flex gap-4 text-sm text-gray-600">
+        <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-green-500" /> Libre</div>
+        <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-red-500" /> Ocupada</div>
+        <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-yellow-400" /> Reservada</div>
       </div>
 
       {/* Modal: Open Table */}
