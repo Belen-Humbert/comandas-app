@@ -126,7 +126,7 @@ export default function TablesPage() {
       {loading ? (
         <div className="flex items-center justify-center h-64 text-gray-400">Cargando...</div>
       ) : (
-        <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2">
+        <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-8 gap-3">
           {tableList.map(table => (
             <button
               key={table.id}
