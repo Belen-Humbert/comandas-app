@@ -82,15 +82,16 @@ export default function TablesPage() {
       {loading ? (
         <div className="flex items-center justify-center h-64 text-gray-400">Cargando...</div>
       ) : (
-        <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-7 lg:grid-cols-8 gap-3">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '10px' }}>
           {tableList.map(table => (
             <button
               key={table.id}
               onClick={() => handleTableClick(table)}
-              className={`relative aspect-square rounded-lg border-2 flex flex-col items-center justify-center p-2 transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 ${getTableColor(table)}`}
+              style={{ height: '90px' }}
+              className={`relative rounded-lg border-2 flex flex-col items-center justify-center p-2 transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 ${getTableColor(table)}`}
             >
-              <span className="text-lg font-bold leading-none">{table.number}</span>
-              <span className="text-[10px] font-medium opacity-90 mt-0.5 leading-none">{table.name}</span>
+              <span className="text-base font-bold leading-none">{table.number}</span>
+              <span className="text-[10px] font-medium opacity-90 mt-1 leading-none">{table.name}</span>
               {table.status === 'occupied' && (
                 <div className="absolute bottom-1.5 left-0 right-0 flex justify-center gap-1.5 text-[10px] opacity-90">
                   <span className="flex items-center gap-0.5"><Users className="w-2.5 h-2.5" />{table.persons_count}</span>
