@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
-
+const bcrypt = require('bcryptjs');
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/comandas.db');
 
 // Ensure data directory exists
@@ -176,9 +176,28 @@ function initializeDatabase() {
       date TEXT DEFAULT (date('now','localtime')),
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    
+    CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('salon', 'admin')),
+  full_name TEXT,
+  active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
   `);
 
   // Seed default tables if none exist
+
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  if (userCount.count === 0) {
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)')
+      .run('admin', hash, 'admin', 'Administrador');
+  }
+
   const tableCount = db.prepare('SELECT COUNT(*) as count FROM tables').get();
   if (tableCount.count === 0) {
     const insertTable = db.prepare('INSERT INTO tables (number, name, capacity, position_x, position_y) VALUES (?, ?, ?, ?, ?)');

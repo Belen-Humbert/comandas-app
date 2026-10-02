@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const { requireRole } = require('../middleware/auth');
 
 // Categories
 router.get('/categories', (req, res) => {
@@ -8,20 +9,20 @@ router.get('/categories', (req, res) => {
   res.json(cats);
 });
 
-router.post('/categories', (req, res) => {
+router.post('/categories',requireRole('admin'), (req, res) => {
   const { name, order_index, color } = req.body;
   if (!name) return res.status(400).json({ error: 'Nombre requerido' });
   const result = db.prepare('INSERT INTO menu_categories (name, order_index, color) VALUES (?, ?, ?)').run(name, order_index || 0, color || '#6366f1');
   res.json({ id: result.lastInsertRowid });
 });
 
-router.put('/categories/:id', (req, res) => {
+router.put('/categories/:id',requireRole('admin'), (req, res) => {
   const { name, order_index, color } = req.body;
   db.prepare('UPDATE menu_categories SET name=?, order_index=?, color=? WHERE id=?').run(name, order_index, color, req.params.id);
   res.json({ ok: true });
 });
 
-router.delete('/categories/:id', (req, res) => {
+router.delete('/categories/:id', requireRole('admin'),(req, res) => {
   db.prepare('DELETE FROM menu_categories WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -49,7 +50,7 @@ router.get('/items/search', (req, res) => {
   res.json(items);
 });
 
-router.post('/items', (req, res) => {
+router.post('/items', requireRole('admin'),(req, res) => {
   const { category_id, name, description, price, available } = req.body;
   if (!name || price == null) return res.status(400).json({ error: 'Nombre y precio requeridos' });
   const result = db.prepare(
@@ -58,14 +59,14 @@ router.post('/items', (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
-router.put('/items/:id', (req, res) => {
+router.put('/items/:id', requireRole('admin'), (req, res) => {
   const { category_id, name, description, price, available } = req.body;
   db.prepare('UPDATE menu_items SET category_id=?, name=?, description=?, price=?, available=? WHERE id=?')
     .run(category_id, name, description, price, available ? 1 : 0, req.params.id);
   res.json({ ok: true });
 });
 
-router.delete('/items/:id', (req, res) => {
+router.delete('/items/:id', requireRole('admin'), (req, res) => {
   db.prepare('DELETE FROM menu_items WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });

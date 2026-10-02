@@ -13,16 +13,26 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 
-// API routes
-app.use('/api/tables', require('./routes/tables'));
-app.use('/api/menu', require('./routes/menu'));
-app.use('/api/orders', require('./routes/orders'));
-app.use('/api/invoices', require('./routes/invoices'));
-app.use('/api/reservations', require('./routes/reservations'));
-app.use('/api/cash', require('./routes/cash'));
-app.use('/api/suppliers', require('./routes/suppliers'));
-app.use('/api/stock', require('./routes/stock'));
-app.use('/api/reports', require('./routes/reports'));
+const { requireAuth, requireRole } = require('./middleware/auth');
+
+// Login (sin protección, es el punto de entrada)
+app.use('/api/auth', require('./routes/auth'));
+
+// Rutas de salón: accesibles para 'salon' y 'admin' (cualquier usuario logueado)
+app.use('/api/tables', requireAuth, require('./routes/tables'));
+app.use('/api/orders', requireAuth, require('./routes/orders'));
+app.use('/api/invoices', requireAuth, require('./routes/invoices'));
+app.use('/api/reservations', requireAuth, require('./routes/reservations'));
+app.use('/api/cash', requireAuth, require('./routes/cash'));
+
+// Menú: cualquier usuario logueado puede VER (GET), pero solo 'admin' puede editar
+// (el bloqueo de los POST/PUT/DELETE puntuales se hace dentro de routes/menu.js)
+app.use('/api/menu', requireAuth, require('./routes/menu'));
+
+// Rutas exclusivas de la oficina: solo 'admin'
+app.use('/api/suppliers', requireAuth, requireRole('admin'), require('./routes/suppliers'));
+app.use('/api/stock', requireAuth, requireRole('admin'), require('./routes/stock'));
+app.use('/api/reports', requireAuth, requireRole('admin'), require('./routes/reports'));
 
 // Serve frontend in production
 const frontendDist = path.join(__dirname, '../../frontend/dist');
