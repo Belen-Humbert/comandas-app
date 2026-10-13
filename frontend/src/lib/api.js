@@ -5,13 +5,37 @@ const api = axios.create({
   timeout: 10000,
 });
 
+export const TOKEN_KEY = 'comandas_token';
+
+// Adjunta el token de sesión a cada request
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 api.interceptors.response.use(
   res => res.data,
   err => {
+    // Token vencido o inválido: se limpia la sesión y se avisa a la app para volver al login
+    // (el login mismo devuelve 401 con credenciales incorrectas, por eso se excluye)
+    const isLoginRequest = err.config?.url?.includes('/auth/login');
+    if (err.response?.status === 401 && !isLoginRequest) {
+      localStorage.removeItem(TOKEN_KEY);
+      window.dispatchEvent(new Event('auth:logout'));
+    }
     const msg = err.response?.data?.error || err.message || 'Error de conexión';
     return Promise.reject(new Error(msg));
   }
 );
+
+export const auth = {
+  login: (username, password) => api.post('/auth/login', { username, password }),
+  me: () => api.get('/auth/me'),
+  listUsers: () => api.get('/auth/users'),
+  createUser: (data) => api.post('/auth/users', data),
+  updateUser: (id, data) => api.put(`/auth/users/${id}`, data),
+};
 
 export const tables = {
   list: () => api.get('/tables'),
