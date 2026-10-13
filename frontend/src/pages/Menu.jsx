@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Plus, Edit2, Trash2, X, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import { menu, fmt } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
 export default function MenuPage() {
+  // El backend solo deja editar el menú al admin; al personal de salón se le oculta la edición
+  const { isAdmin } = useAuth();
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -76,18 +79,22 @@ export default function MenuPage() {
       <div className="w-52 bg-gray-900 text-white flex flex-col">
         <div className="p-4 border-b border-gray-700 flex items-center justify-between">
           <h2 className="font-bold text-sm uppercase tracking-wide text-gray-300">Categorías</h2>
-          <button onClick={() => { setShowNewCat(true); setEditingCat(null); setCatForm({ name: '', color: '#6366f1' }); }} className="p-1 hover:bg-gray-700 rounded">
-            <Plus className="w-4 h-4" />
-          </button>
+          {isAdmin && (
+            <button onClick={() => { setShowNewCat(true); setEditingCat(null); setCatForm({ name: '', color: '#6366f1' }); }} className="p-1 hover:bg-gray-700 rounded">
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {categories.map(cat => (
             <div key={cat.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer group ${selectedCat === cat.id ? 'bg-amber-500' : 'hover:bg-gray-800'}`} onClick={() => setSelectedCat(cat.id)}>
               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
               <span className="text-sm flex-1 truncate">{cat.name}</span>
-              <button onClick={e => { e.stopPropagation(); setEditingCat(cat); setCatForm({ name: cat.name, color: cat.color }); setShowNewCat(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-700 rounded">
-                <Edit2 className="w-3 h-3" />
-              </button>
+              {isAdmin && (
+                <button onClick={e => { e.stopPropagation(); setEditingCat(cat); setCatForm({ name: cat.name, color: cat.color }); setShowNewCat(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-700 rounded">
+                  <Edit2 className="w-3 h-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -100,9 +107,11 @@ export default function MenuPage() {
             <h1 className="text-2xl font-bold">Menú</h1>
             <p className="text-sm text-gray-500">{filteredItems.length} items en {categories.find(c => c.id === selectedCat)?.name || 'todas las categorías'}</p>
           </div>
-          <button onClick={() => { setShowNewItem(true); setEditingItem(null); setItemForm({ name: '', description: '', price: '', category_id: selectedCat, available: true }); }} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Agregar Item
-          </button>
+          {isAdmin && (
+            <button onClick={() => { setShowNewItem(true); setEditingItem(null); setItemForm({ name: '', description: '', price: '', category_id: selectedCat, available: true }); }} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Agregar Item
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -117,13 +126,15 @@ export default function MenuPage() {
                   {item.description && <p className="text-sm text-gray-500">{item.description}</p>}
                 </div>
                 <span className="font-bold text-amber-600 text-lg">{fmt.currency(item.price)}</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => handleToggleAvailable(item)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" title={item.available ? 'Deshabilitar' : 'Habilitar'}>
-                    {item.available ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5" />}
-                  </button>
-                  <button onClick={() => openEdit(item)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><Edit2 className="w-4 h-4" /></button>
-                  <button onClick={() => handleDeleteItem(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-red-400"><Trash2 className="w-4 h-4" /></button>
-                </div>
+                {isAdmin && (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleToggleAvailable(item)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" title={item.available ? 'Deshabilitar' : 'Habilitar'}>
+                      {item.available ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5" />}
+                    </button>
+                    <button onClick={() => openEdit(item)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><Edit2 className="w-4 h-4" /></button>
+                    <button onClick={() => handleDeleteItem(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-red-400"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                )}
               </div>
             ))}
             {filteredItems.length === 0 && <p className="text-center text-gray-400 py-12">No hay items en esta categoría</p>}
