@@ -4,7 +4,7 @@ const db = require('../db/database');
 
 // Get all open orders
 router.get('/', (req, res) => {
-  const { status, date } = req.query;
+  const { status, date, table_id, limit } = req.query;
   let query = `
     SELECT o.*, t.number as table_number_ref, t.name as table_name_ref,
            COUNT(oi.id) as item_count
@@ -16,8 +16,22 @@ router.get('/', (req, res) => {
   const where = [];
   if (status) { where.push('o.status = ?'); params.push(status); }
   if (date) { where.push("date(o.created_at) = ?"); params.push(date); }
+  if (table_id) {
+    const id = Number(table_id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Mesa inválida' });
+    where.push('o.table_id = ?');
+    params.push(id);
+  }
   if (where.length) query += ' WHERE ' + where.join(' AND ');
-  query += ' GROUP BY o.id ORDER BY o.created_at DESC';
+  query += ' GROUP BY o.id ORDER BY o.created_at DESC, o.id DESC';
+
+  // Límite opcional (para el historial de una mesa); sin límite se devuelve todo como antes
+  if (limit !== undefined) {
+    const n = Number(limit);
+    if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: 'Límite inválido' });
+    query += ' LIMIT ?';
+    params.push(Math.min(n, 500));
+  }
   res.json(db.prepare(query).all(...params));
 });
 

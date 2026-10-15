@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight } from 'lucide-react';
+import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight, History } from 'lucide-react';
 import { tables, orders } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import TableHistory from '../components/TableHistory';
 
 // ---- Plano de mesas ----
 // El plano tiene un tamaño lógico fijo y se escala para entrar en la pantalla, así la
@@ -83,6 +84,7 @@ export default function TablesPage() {
   const [addTableModal, setAddTableModal] = useState(false);
   const [newTable, setNewTable] = useState({ number: '', name: '', capacity: 4, zone: 'salon' });
   const [deleteMode, setDeleteMode] = useState(false);
+  const [historyTable, setHistoryTable] = useState(null);
 
   // Modo "ordenar mesas": los cambios quedan en un borrador hasta apretar Guardar
   const [editMode, setEditMode] = useState(false);
@@ -409,6 +411,17 @@ export default function TablesPage() {
                         <X className="w-3 h-3 text-white" />
                       </span>
                     )}
+                    {!editMode && !deleteMode && (
+                      <span
+                        role="button"
+                        aria-label={`Historial de ${table.name}`}
+                        title="Ver historial de la mesa"
+                        onClick={(e) => { e.stopPropagation(); setHistoryTable(table); }}
+                        className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/15 hover:bg-black/30 flex items-center justify-center cursor-pointer"
+                      >
+                        <History className="w-3.5 h-3.5 text-white" />
+                      </span>
+                    )}
                     {editMode && (
                       <span
                         role="button"
@@ -445,6 +458,8 @@ export default function TablesPage() {
         <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-red-500" /> Ocupada</div>
         <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-yellow-400" /> Reservada</div>
       </div>
+
+      {historyTable && <TableHistory table={historyTable} onClose={() => setHistoryTable(null)} />}
 
       {/* Modal: Add Table */}
       {addTableModal && (
