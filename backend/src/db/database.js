@@ -36,7 +36,8 @@ function initializeDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       order_index INTEGER DEFAULT 0,
-      color TEXT DEFAULT '#6366f1'
+      color TEXT DEFAULT '#6366f1',
+      kind TEXT NOT NULL DEFAULT 'comida' CHECK(kind IN ('comida', 'bebida'))
     );
 
     CREATE TABLE IF NOT EXISTS menu_items (
@@ -246,6 +247,17 @@ function initializeDatabase() {
     })();
   }
 
+  // Tipo de categoría (comida / bebida) para separar platos de bebidas en las estadísticas.
+  // En bases existentes se deduce del nombre; después se puede cambiar desde el Menú.
+  const catCols = db.prepare("PRAGMA table_info(menu_categories)").all().map(c => c.name);
+  if (!catCols.includes('kind')) {
+    db.exec("ALTER TABLE menu_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'comida' CHECK(kind IN ('comida', 'bebida'))");
+    const words = ['bebida', 'gaseosa', 'cerveza', 'vino', 'cafe', 'café', 'jugo', 'agua', 'trago', 'coctel', 'cóctel',
+      'licuado', 'infusion', 'infusión', 'whisky', 'licor', 'aperitivo', 'champagne', 'espumante', 'fernet'];
+    const upd = db.prepare("UPDATE menu_categories SET kind = 'bebida' WHERE lower(name) LIKE ?");
+    words.forEach(w => upd.run(`%${w}%`));
+  }
+
   // Seed default tables if none exist
 
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
@@ -271,12 +283,14 @@ function initializeDatabase() {
   const catCount = db.prepare('SELECT COUNT(*) as count FROM menu_categories').get();
   if (catCount.count === 0) {
     const insertCat = db.prepare('INSERT INTO menu_categories (name, order_index, color) VALUES (?, ?, ?)');
+    const setKind = db.prepare("UPDATE menu_categories SET kind = 'bebida' WHERE id = ?");
     const insertItem = db.prepare('INSERT INTO menu_items (category_id, name, price, available) VALUES (?, ?, ?, 1)');
 
     const entradas = insertCat.run('Entradas', 0, '#f59e0b').lastInsertRowid;
     const principales = insertCat.run('Platos Principales', 1, '#ef4444').lastInsertRowid;
     const bebidas = insertCat.run('Bebidas', 2, '#3b82f6').lastInsertRowid;
     const postres = insertCat.run('Postres', 3, '#8b5cf6').lastInsertRowid;
+    setKind.run(bebidas);
 
     [['Empanadas (x6)', 1500], ['Tabla de fiambres', 2800], ['Provoleta', 1800], ['Croquetas', 1200]].forEach(([n, p]) => insertItem.run(entradas, n, p));
     [['Milanesa napolitana', 3500], ['Bife de lomo', 5200], ['Pollo al horno', 3200], ['Pasta del día', 2800], ['Ravioles', 2600], ['Tallarines', 2400]].forEach(([n, p]) => insertItem.run(principales, n, p));
