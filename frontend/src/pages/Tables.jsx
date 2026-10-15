@@ -105,7 +105,7 @@ export default function TablesPage() {
 
   const load = useCallback(async () => {
     try {
-      const [data, wd] = await Promise.all([tables.list(), workdays.current()]);
+      const [data, wd] = await Promise.all([tables.list(), workdays.current().catch(() => ({ current: null }))]);
       setTableList(data);
       setWorkDay(wd.current);
     } catch (e) {
@@ -367,14 +367,14 @@ export default function TablesPage() {
                   <Trash2 className="w-4 h-4" /> {deleteMode ? 'Cancelar' : 'Eliminar'}
                 </button>
               )}
-              {workDay && (
-                <button
-                  onClick={() => setCloseDayModal({ closing: false })}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors"
-                >
-                  <Moon className="w-4 h-4" /> Cerrar jornada
-                </button>
-              )}
+              <button
+                onClick={() => setCloseDayModal({ closing: false })}
+                disabled={!workDay}
+                title={workDay ? 'Cerrar la jornada de hoy' : 'No hay jornada abierta: empieza con la primera comanda'}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <Moon className="w-4 h-4" /> Cerrar jornada
+              </button>
               <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Agregar mesa
               </button>
