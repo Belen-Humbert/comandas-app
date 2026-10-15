@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight, History } from 'lucide-react';
-import { tables, orders } from '../lib/api';
+import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight, History, AlertTriangle } from 'lucide-react';
+import { tables, orders, fmt } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import TableHistory from '../components/TableHistory';
 
@@ -85,6 +85,7 @@ export default function TablesPage() {
   const [newTable, setNewTable] = useState({ number: '', name: '', capacity: 4, zone: 'salon' });
   const [deleteMode, setDeleteMode] = useState(false);
   const [historyTable, setHistoryTable] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { table, usage, deleting }
 
   // Modo "ordenar mesas": los cambios quedan en un borrador hasta apretar Guardar
   const [editMode, setEditMode] = useState(false);
@@ -187,16 +188,33 @@ export default function TablesPage() {
     }
   };
 
+  // Eliminar una mesa: primero se abre una ventana de aviso. Se consulta cuánto uso tuvo la mesa
+  // para advertir si tiene historial; recién al confirmar se elimina.
   const handleDeleteTable = async (e, table) => {
     e.stopPropagation();
     if (table.status === 'occupied') return toast.error('No se puede eliminar una mesa ocupada');
-    if (!window.confirm(`¿Eliminar ${table.name}?`)) return;
+    setDeleteTarget({ table, usage: null, deleting: false });
     try {
-      await tables.delete(table.id);
-      toast.success('Mesa eliminada');
+      const usage = await tables.usage(table.id);
+      setDeleteTarget(prev => (prev && prev.table.id === table.id ? { ...prev, usage } : prev));
+    } catch (err) {
+      setDeleteTarget(null);
+      toast.error(err.message);
+    }
+  };
+
+  const confirmDeleteTable = async () => {
+    const { table, usage } = deleteTarget;
+    setDeleteTarget(prev => ({ ...prev, deleting: true }));
+    try {
+      const hasHistory = usage.orders_count > 0 || usage.reservations_count > 0;
+      await tables.delete(table.id, hasHistory);
+      toast.success(`${table.name} eliminada`);
+      setDeleteTarget(null);
       load();
-    } catch (e) {
-      toast.error(e.message);
+    } catch (err) {
+      setDeleteTarget(prev => (prev ? { ...prev, deleting: false } : prev));
+      toast.error(err.message);
     }
   };
 
@@ -324,12 +342,14 @@ export default function TablesPage() {
                   <Move className="w-4 h-4" /> Ordenar mesas
                 </button>
               )}
-              <button
-                onClick={() => setDeleteMode(d => !d)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${deleteMode ? 'bg-red-100 border-red-300 text-red-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
-              >
-                <Trash2 className="w-4 h-4" /> {deleteMode ? 'Cancelar' : 'Eliminar'}
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setDeleteMode(d => !d)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${deleteMode ? 'bg-red-100 border-red-300 text-red-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Trash2 className="w-4 h-4" /> {deleteMode ? 'Cancelar' : 'Eliminar'}
+                </button>
+              )}
               <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Agregar mesa
               </button>
@@ -460,6 +480,56 @@ export default function TablesPage() {
       </div>
 
       {historyTable && <TableHistory table={historyTable} onClose={() => setHistoryTable(null)} />}
+
+      {/* Modal: Delete Table */}
+      {deleteTarget && (() => {
+        const { table, usage, deleting } = deleteTarget;
+        const hasHistory = usage && (usage.orders_count > 0 || usage.reservations_count > 0);
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !deleting && setDeleteTarget(null)}>
+            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" role="dialog" aria-label={`Eliminar ${table.name}`} onClick={e => e.stopPropagation()}>
+              <h2 className="text-xl font-bold mb-3">Eliminar {table.name}</h2>
+
+              {!usage && <p className="text-gray-400 py-4">Revisando el historial de la mesa...</p>}
+
+              {usage && !hasHistory && (
+                <p className="text-gray-600 mb-2">Esta mesa no tiene comandas ni reservas. ¿Querés eliminarla?</p>
+              )}
+
+              {usage && hasHistory && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-2 text-sm text-amber-900" data-testid="delete-warning">
+                  <p className="flex items-center gap-2 font-semibold mb-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" /> Esta mesa tiene historial
+                  </p>
+                  <ul className="list-disc pl-5 space-y-0.5 mb-2">
+                    {usage.orders_count > 0 && (
+                      <li>
+                        {usage.orders_count} {usage.orders_count === 1 ? 'comanda' : 'comandas'}
+                        {usage.closed_total > 0 && <> ({fmt.currency(usage.closed_total)} cobrados)</>}
+                      </li>
+                    )}
+                    {usage.reservations_count > 0 && (
+                      <li>{usage.reservations_count} {usage.reservations_count === 1 ? 'reserva' : 'reservas'}</li>
+                    )}
+                  </ul>
+                  <p>
+                    Si la eliminás ya no vas a poder ver su historial. Las ventas siguen sumando en la caja y en el
+                    dashboard{usage.reservations_count > 0 && ', y las reservas quedan sin mesa asignada'}.
+                    Esta acción no se puede deshacer.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-5">
+                <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="btn-secondary flex-1">Cancelar</button>
+                <button onClick={confirmDeleteTable} disabled={!usage || deleting} className="btn-danger flex-1">
+                  {deleting ? 'Eliminando...' : hasHistory ? 'Sí, eliminar mesa y su historial' : 'Sí, eliminar mesa'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal: Add Table */}
       {addTableModal && (

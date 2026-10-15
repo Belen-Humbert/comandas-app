@@ -42,7 +42,9 @@ export const tables = {
   get: (id) => api.get(`/tables/${id}`),
   create: (data) => api.post('/tables', data),
   update: (id, data) => api.put(`/tables/${id}`, data),
-  delete: (id) => api.delete(`/tables/${id}`),
+  usage: (id) => api.get(`/tables/${id}/usage`),
+  // confirm=true es necesario cuando la mesa tiene historial (comandas o reservas)
+  delete: (id, confirm = false) => api.delete(`/tables/${id}`, { params: confirm ? { confirm: 1 } : {} }),
   saveLayout: (list) => api.put('/tables/layout', { tables: list }),
 };
 
