@@ -5,6 +5,8 @@ import { reports, fmt, localDate, localMonth } from '../lib/api';
 
 // Hora local (no UTC): pasadas las 21 hs en Argentina, toISOString() ya devolvería el día siguiente
 const today = () => localDate();
+// "2026-10-15" -> "15/10/2026" (sin pasar por Date: evita correrse un día por el huso horario)
+const dayText = (d) => (d ? d.split('-').reverse().join('/') : '-');
 const thisMonth = () => localMonth();
 
 const ZONE_LABELS = { salon: 'Salón', vereda: 'Vereda', sin_zona: 'Sin zona' };
@@ -44,7 +46,7 @@ export default function DashboardPage() {
   const [dailyData, setDailyData] = useState(null);
   const [weeklyData, setWeeklyData] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(today());
+  const [selectedDate, setSelectedDate] = useState(''); // vacío = jornada actual (la define el servidor)
   const [selectedMonth, setSelectedMonth] = useState(thisMonth());
 
   useEffect(() => {
@@ -54,8 +56,9 @@ export default function DashboardPage() {
   }, [tab, selectedDate, selectedMonth]);
 
   const loadDaily = async () => {
-    const data = await reports.daily(selectedDate);
+    const data = await reports.daily(selectedDate || undefined);
     setDailyData(data);
+    if (!selectedDate) setSelectedDate(data.date);
   };
 
   const loadWeekly = async () => {
@@ -98,7 +101,7 @@ export default function DashboardPage() {
                 <StatCard title="Ingresos" value={fmt.currency(dailyData.sales.total_revenue)} icon={DollarSign} color="green" />
                 <StatCard title="Comandas" value={dailyData.sales.orders_count} icon={ShoppingBag} color="blue" />
                 <StatCard title="Ticket promedio" value={fmt.currency(dailyData.sales.avg_ticket)} icon={TrendingUp} color="purple" />
-                <StatCard title="Fecha" value={fmt.date(selectedDate)} icon={Calendar} color="amber" />
+                <StatCard title="Jornada" value={dayText(selectedDate)} icon={Calendar} color="amber" />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">

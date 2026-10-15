@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight, History, AlertTriangle } from 'lucide-react';
-import { tables, orders, fmt } from '../lib/api';
+import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight, History, AlertTriangle, Moon } from 'lucide-react';
+import { tables, orders, workdays, fmt } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import TableHistory from '../components/TableHistory';
 
@@ -86,6 +86,8 @@ export default function TablesPage() {
   const [deleteMode, setDeleteMode] = useState(false);
   const [historyTable, setHistoryTable] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null); // { table, usage, deleting }
+  const [workDay, setWorkDay] = useState(null); // jornada abierta (o null si todavía no empezó)
+  const [closeDayModal, setCloseDayModal] = useState(null); // { closing }
 
   // Modo "ordenar mesas": los cambios quedan en un borrador hasta apretar Guardar
   const [editMode, setEditMode] = useState(false);
@@ -103,8 +105,9 @@ export default function TablesPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await tables.list();
+      const [data, wd] = await Promise.all([tables.list(), workdays.current()]);
       setTableList(data);
+      setWorkDay(wd.current);
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -215,6 +218,20 @@ export default function TablesPage() {
     } catch (err) {
       setDeleteTarget(prev => (prev ? { ...prev, deleting: false } : prev));
       toast.error(err.message);
+    }
+  };
+
+  // ---- Cerrar jornada ----
+  const handleCloseDay = async () => {
+    setCloseDayModal(m => ({ ...m, closing: true }));
+    try {
+      await workdays.close();
+      toast.success('Jornada cerrada. La próxima comanda abre una nueva');
+      setCloseDayModal(null);
+      load();
+    } catch (e) {
+      toast.error(e.message);
+      setCloseDayModal(null);
     }
   };
 
@@ -350,6 +367,14 @@ export default function TablesPage() {
                   <Trash2 className="w-4 h-4" /> {deleteMode ? 'Cancelar' : 'Eliminar'}
                 </button>
               )}
+              {workDay && (
+                <button
+                  onClick={() => setCloseDayModal({ closing: false })}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors"
+                >
+                  <Moon className="w-4 h-4" /> Cerrar jornada
+                </button>
+              )}
               <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Agregar mesa
               </button>
@@ -480,6 +505,29 @@ export default function TablesPage() {
       </div>
 
       {historyTable && <TableHistory table={historyTable} onClose={() => setHistoryTable(null)} />}
+
+      {closeDayModal && workDay && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !closeDayModal.closing && setCloseDayModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" role="dialog" aria-label="Cerrar jornada" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-2">Cerrar jornada</h2>
+            <p className="text-sm text-gray-600">
+              {workDay.orders_count} {workDay.orders_count === 1 ? 'comanda' : 'comandas'} · {fmt.currency(workDay.total)} cobrados.
+              Al cerrar, el historial de hoy queda guardado y la próxima comanda empieza una jornada nueva.
+            </p>
+            {workDay.open_orders > 0 && (
+              <p data-testid="close-day-blocked" className="mt-3 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3">
+                Todavía hay {workDay.open_orders} {workDay.open_orders === 1 ? 'mesa con comanda abierta' : 'mesas con comanda abierta'}. Cobrá o cancelá las comandas antes de cerrar.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setCloseDayModal(null)} disabled={closeDayModal.closing} className="btn-secondary">Cancelar</button>
+              <button onClick={handleCloseDay} disabled={closeDayModal.closing || workDay.open_orders > 0} className="btn-primary">
+                {closeDayModal.closing ? 'Cerrando...' : 'Sí, cerrar jornada'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Delete Table */}
       {deleteTarget && (() => {

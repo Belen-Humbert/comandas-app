@@ -72,6 +72,13 @@ export const orders = {
   print: (id) => api.post(`/orders/${id}/print`),
 };
 
+// Jornada de trabajo: abre sola con la primera comanda y se cierra a mano al terminar el servicio
+export const workdays = {
+  current: () => api.get('/workdays/current'),
+  list: (limit) => api.get('/workdays', { params: limit ? { limit } : {} }),
+  close: () => api.post('/workdays/close'),
+};
+
 export const invoices = {
   list: (params) => api.get('/invoices', { params }),
   get: (id) => api.get(`/invoices/${id}`),

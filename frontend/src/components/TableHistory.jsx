@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { X, ChevronDown, ChevronRight, ChevronLeft, Users, ExternalLink } from 'lucide-react';
-import { orders, fmt, localDate, addDays } from '../lib/api';
+import { orders, workdays, fmt } from '../lib/api';
 
 const STATUS = {
   open: { label: 'En curso', cls: 'bg-blue-100 text-blue-700' },
@@ -28,27 +28,42 @@ const longDay = (dateStr) => {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 };
+const shortDay = (dateStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+};
 
+// El historial se ve por jornada (de que abre el local hasta que se cierra el día),
+// no por día del calendario: el cierre puede ser a las 00:50, 01:30, 02:00...
 export default function TableHistory({ table, onClose }) {
   const navigate = useNavigate();
-  const today = localDate();
-  const [day, setDay] = useState(today);
+  const [days, setDays] = useState(null); // jornadas, la más reciente primero
+  const [idx, setIdx] = useState(0);
   const [list, setList] = useState(null); // null = cargando
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null); // id de la comanda abierta
   const [details, setDetails] = useState({}); // { [orderId]: { loading, items, notes } }
 
-  // El historial se ve de a un día: cada vez que cambia el día se vuelve a pedir
   useEffect(() => {
+    workdays.list(366)
+      .then(setDays)
+      .catch(e => { setError(e.message); setDays([]); });
+  }, []);
+
+  const wd = days && days[idx];
+
+  // Cada vez que cambia la jornada se vuelven a pedir las comandas de esta mesa
+  useEffect(() => {
+    if (!wd) { if (days) setList([]); return; }
     let cancelled = false;
     setList(null);
     setError(null);
     setExpanded(null);
-    orders.list({ table_id: table.id, date: day })
+    orders.list({ table_id: table.id, work_day_id: wd.id })
       .then(data => { if (!cancelled) setList(data); })
       .catch(e => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [table.id, day]);
+  }, [table.id, wd?.id, days]);
 
   // Cerrar con Escape
   useEffect(() => {
@@ -66,11 +81,6 @@ export default function TableHistory({ table, onClose }) {
       total: closed.reduce((s, o) => s + (o.total || 0), 0),
     };
   }, [list]);
-
-  const goTo = (dateStr) => {
-    if (!dateStr) return;
-    setDay(dateStr > today ? today : dateStr); // no se puede ver el futuro
-  };
 
   const toggle = async (order) => {
     if (expanded === order.id) return setExpanded(null);
@@ -97,36 +107,55 @@ export default function TableHistory({ table, onClose }) {
         <div className="flex items-start justify-between p-5 pb-3">
           <div>
             <h2 className="text-xl font-bold">Historial · {table.name}</h2>
-            <p className="text-sm text-gray-500 mt-0.5 capitalize" data-testid="history-day">{longDay(day)}{day === today && ' (hoy)'}</p>
+            {wd && (
+              <>
+                <p className="text-sm text-gray-500 mt-0.5 first-letter:uppercase" data-testid="history-day">
+                  {longDay(wd.day)}{wd.status === 'open' && ' (jornada actual)'}
+                </p>
+                <p className="text-xs text-gray-400" data-testid="history-range">
+                  {wd.status === 'open'
+                    ? `Desde las ${timeLabel(wd.opened_at)} hs · en curso`
+                    : <>De {timeLabel(wd.opened_at)} a {timeLabel(wd.closed_at)} hs{dayLabel(wd.closed_at) !== dayLabel(wd.opened_at) && <> ({dayLabel(wd.closed_at)})</>}</>}
+                </p>
+              </>
+            )}
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="p-1 hover:bg-gray-100 rounded-lg">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
-        {/* Navegación por día */}
+        {/* Navegación por jornada */}
         <div className="flex items-center gap-2 px-5 pb-3 border-b border-gray-100">
-          <button onClick={() => goTo(addDays(day, -1))} aria-label="Día anterior" className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50">
+          <button
+            onClick={() => setIdx(i => i + 1)}
+            disabled={!days || idx >= days.length - 1}
+            aria-label="Jornada anterior"
+            className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <input
-            type="date"
-            value={day}
-            max={today}
-            onChange={(e) => goTo(e.target.value)}
-            aria-label="Elegir día"
-            className="input w-auto py-1.5"
-          />
+          <select
+            value={idx}
+            onChange={(e) => setIdx(Number(e.target.value))}
+            aria-label="Elegir jornada"
+            disabled={!days || days.length === 0}
+            className="input w-auto py-1.5 capitalize"
+          >
+            {(days || []).map((d, i) => (
+              <option key={d.id} value={i}>{shortDay(d.day)}{d.status === 'open' ? ' · en curso' : ''}</option>
+            ))}
+          </select>
           <button
-            onClick={() => goTo(addDays(day, 1))}
-            disabled={day >= today}
-            aria-label="Día siguiente"
+            onClick={() => setIdx(i => i - 1)}
+            disabled={idx <= 0}
+            aria-label="Jornada siguiente"
             className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
-          {day !== today && (
-            <button onClick={() => setDay(today)} className="btn btn-secondary btn-sm ml-auto">Hoy</button>
+          {idx > 0 && (
+            <button onClick={() => setIdx(0)} className="btn btn-secondary btn-sm ml-auto">Última</button>
           )}
         </div>
 
@@ -139,9 +168,9 @@ export default function TableHistory({ table, onClose }) {
 
         <div className="flex-1 overflow-y-auto p-3">
           {error && <p className="text-center text-red-500 py-10">{error}</p>}
-          {!error && list === null && <p className="text-center text-gray-400 py-10">Cargando...</p>}
-          {list && list.length === 0 && (
-            <p className="text-center text-gray-400 py-10">No hubo comandas en esta mesa este día</p>
+          {!error && (list === null || days === null) && <p className="text-center text-gray-400 py-10">Cargando...</p>}
+          {list && days && list.length === 0 && (
+            <p className="text-center text-gray-400 py-10">{days.length === 0 ? 'Todavía no hay jornadas registradas' : 'No hubo comandas en esta mesa en esta jornada'}</p>
           )}
 
           {list && list.map(order => {
