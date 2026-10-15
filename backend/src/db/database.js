@@ -26,7 +26,10 @@ function initializeDatabase() {
       status TEXT DEFAULT 'free' CHECK(status IN ('free', 'occupied', 'reserved')),
       current_order_id INTEGER,
       position_x INTEGER DEFAULT 0,
-      position_y INTEGER DEFAULT 0
+      position_y INTEGER DEFAULT 0,
+      zone TEXT NOT NULL DEFAULT 'salon' CHECK(zone IN ('salon', 'vereda')),
+      layout_x REAL,
+      layout_y REAL
     );
 
     CREATE TABLE IF NOT EXISTS menu_categories (
@@ -188,6 +191,16 @@ function initializeDatabase() {
 );
 
   `);
+
+  // Migración: bases creadas antes de existir las zonas (salón/vereda) y la distribución libre.
+  // layout_x/layout_y = posición en el plano (NULL = todavía sin ubicar, el frontend la acomoda sola).
+  // position_x/position_y quedan como columnas heredadas y ya no se usan.
+  const tableCols = db.prepare("PRAGMA table_info(tables)").all().map(c => c.name);
+  if (!tableCols.includes('zone')) {
+    db.exec("ALTER TABLE tables ADD COLUMN zone TEXT NOT NULL DEFAULT 'salon' CHECK(zone IN ('salon', 'vereda'))");
+  }
+  if (!tableCols.includes('layout_x')) db.exec('ALTER TABLE tables ADD COLUMN layout_x REAL');
+  if (!tableCols.includes('layout_y')) db.exec('ALTER TABLE tables ADD COLUMN layout_y REAL');
 
   // Seed default tables if none exist
 

@@ -43,6 +43,7 @@ export const tables = {
   create: (data) => api.post('/tables', data),
   update: (id, data) => api.put(`/tables/${id}`, data),
   delete: (id) => api.delete(`/tables/${id}`),
+  saveLayout: (list) => api.put('/tables/layout', { tables: list }),
 };
 
 export const menu = {
