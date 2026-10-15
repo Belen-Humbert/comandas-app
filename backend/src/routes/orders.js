@@ -62,8 +62,8 @@ router.post('/', (req, res) => {
   if (openOrder) return res.status(400).json({ error: 'La mesa ya tiene una comanda abierta', order_id: openOrder.id });
 
   const result = db.prepare(
-    'INSERT INTO orders (table_id, table_number, persons_count, notes) VALUES (?, ?, ?, ?)'
-  ).run(table_id, table.number, persons_count || 1, notes);
+    'INSERT INTO orders (table_id, table_number, persons_count, notes, table_zone) VALUES (?, ?, ?, ?, ?)'
+  ).run(table_id, table.number, persons_count || 1, notes, table.zone);
 
   db.prepare("UPDATE tables SET status = 'occupied', current_order_id = ? WHERE id = ?")
     .run(result.lastInsertRowid, table_id);

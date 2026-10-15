@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { X, ChevronDown, ChevronRight, Users, ExternalLink } from 'lucide-react';
-import { orders, fmt } from '../lib/api';
-
-const LIMIT = 50;
+import { X, ChevronDown, ChevronRight, ChevronLeft, Users, ExternalLink } from 'lucide-react';
+import { orders, fmt, localDate, addDays } from '../lib/api';
 
 const STATUS = {
   open: { label: 'En curso', cls: 'bg-blue-100 text-blue-700' },
@@ -23,23 +21,34 @@ const dayLabel = (s) => {
 };
 const timeLabel = (s) => {
   const d = parseDate(s);
-  return d ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '-';
+  return d ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-';
+};
+// "miércoles 14 de octubre" a partir de "2026-10-14"
+const longDay = (dateStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 };
 
 export default function TableHistory({ table, onClose }) {
   const navigate = useNavigate();
+  const today = localDate();
+  const [day, setDay] = useState(today);
   const [list, setList] = useState(null); // null = cargando
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null); // id de la comanda abierta
   const [details, setDetails] = useState({}); // { [orderId]: { loading, items, notes } }
 
+  // El historial se ve de a un día: cada vez que cambia el día se vuelve a pedir
   useEffect(() => {
     let cancelled = false;
-    orders.list({ table_id: table.id, limit: LIMIT })
+    setList(null);
+    setError(null);
+    setExpanded(null);
+    orders.list({ table_id: table.id, date: day })
       .then(data => { if (!cancelled) setList(data); })
       .catch(e => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [table.id]);
+  }, [table.id, day]);
 
   // Cerrar con Escape
   useEffect(() => {
@@ -57,6 +66,11 @@ export default function TableHistory({ table, onClose }) {
       total: closed.reduce((s, o) => s + (o.total || 0), 0),
     };
   }, [list]);
+
+  const goTo = (dateStr) => {
+    if (!dateStr) return;
+    setDay(dateStr > today ? today : dateStr); // no se puede ver el futuro
+  };
 
   const toggle = async (order) => {
     if (expanded === order.id) return setExpanded(null);
@@ -80,26 +94,54 @@ export default function TableHistory({ table, onClose }) {
         role="dialog"
         aria-label={`Historial de ${table.name}`}
       >
-        <div className="flex items-start justify-between p-5 border-b border-gray-100">
+        <div className="flex items-start justify-between p-5 pb-3">
           <div>
             <h2 className="text-xl font-bold">Historial · {table.name}</h2>
-            {summary && (
-              <p className="text-sm text-gray-500 mt-0.5" data-testid="history-summary">
-                {summary.count} {summary.count === 1 ? 'comanda' : 'comandas'}
-                {summary.closedCount > 0 && <> · {fmt.currency(summary.total)} cobrados</>}
-              </p>
-            )}
+            <p className="text-sm text-gray-500 mt-0.5 capitalize" data-testid="history-day">{longDay(day)}{day === today && ' (hoy)'}</p>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="p-1 hover:bg-gray-100 rounded-lg">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
+        {/* Navegación por día */}
+        <div className="flex items-center gap-2 px-5 pb-3 border-b border-gray-100">
+          <button onClick={() => goTo(addDays(day, -1))} aria-label="Día anterior" className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <input
+            type="date"
+            value={day}
+            max={today}
+            onChange={(e) => goTo(e.target.value)}
+            aria-label="Elegir día"
+            className="input w-auto py-1.5"
+          />
+          <button
+            onClick={() => goTo(addDays(day, 1))}
+            disabled={day >= today}
+            aria-label="Día siguiente"
+            className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          {day !== today && (
+            <button onClick={() => setDay(today)} className="btn btn-secondary btn-sm ml-auto">Hoy</button>
+          )}
+        </div>
+
+        {summary && (
+          <p className="px-5 pt-3 text-sm text-gray-500" data-testid="history-summary">
+            {summary.count} {summary.count === 1 ? 'comanda' : 'comandas'}
+            {summary.closedCount > 0 && <> · {fmt.currency(summary.total)} cobrados</>}
+          </p>
+        )}
+
         <div className="flex-1 overflow-y-auto p-3">
           {error && <p className="text-center text-red-500 py-10">{error}</p>}
           {!error && list === null && <p className="text-center text-gray-400 py-10">Cargando...</p>}
           {list && list.length === 0 && (
-            <p className="text-center text-gray-400 py-10">Esta mesa todavía no tuvo comandas</p>
+            <p className="text-center text-gray-400 py-10">No hubo comandas en esta mesa este día</p>
           )}
 
           {list && list.map(order => {
@@ -115,9 +157,7 @@ export default function TableHistory({ table, onClose }) {
                 >
                   {open ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 capitalize">
-                      {dayLabel(order.created_at)} <span className="text-gray-400 font-normal normal-case">· {timeLabel(order.created_at)}</span>
-                    </p>
+                    <p className="font-medium text-gray-900">{timeLabel(order.created_at)} hs</p>
                     <p className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
                       <span className="inline-flex items-center gap-0.5"><Users className="w-3 h-3" />{order.persons_count} pers.</span>
                       <span>{order.item_count} {order.item_count === 1 ? 'ítem' : 'ítems'}</span>
@@ -163,10 +203,6 @@ export default function TableHistory({ table, onClose }) {
               </div>
             );
           })}
-
-          {list && list.length >= LIMIT && (
-            <p className="text-center text-xs text-gray-400 py-2">Se muestran las últimas {LIMIT} comandas</p>
-          )}
         </div>
       </div>
     </div>

@@ -59,7 +59,8 @@ function initializeDatabase() {
       total REAL DEFAULT 0,
       payment_method TEXT CHECK(payment_method IN ('efectivo', 'transferencia', 'tarjeta', 'mixto', NULL)),
       created_at TEXT DEFAULT (datetime('now','localtime')),
-      closed_at TEXT
+      closed_at TEXT,
+      table_zone TEXT
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -201,6 +202,15 @@ function initializeDatabase() {
   }
   if (!tableCols.includes('layout_x')) db.exec('ALTER TABLE tables ADD COLUMN layout_x REAL');
   if (!tableCols.includes('layout_y')) db.exec('ALTER TABLE tables ADD COLUMN layout_y REAL');
+
+  // Migración: cada comanda guarda en qué zona estaba su mesa (salón/vereda) al abrirse, para que
+  // las estadísticas por zona se mantengan aunque la mesa cambie de zona o se elimine más adelante.
+  // Las comandas anteriores toman la zona actual de su mesa (lo mejor que se puede saber).
+  const orderCols = db.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
+  if (!orderCols.includes('table_zone')) {
+    db.exec('ALTER TABLE orders ADD COLUMN table_zone TEXT');
+    db.exec('UPDATE orders SET table_zone = (SELECT zone FROM tables WHERE tables.id = orders.table_id) WHERE table_id IS NOT NULL');
+  }
 
   // Seed default tables if none exist
 

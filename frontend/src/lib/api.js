@@ -126,6 +126,17 @@ export const reports = {
   monthly: (month) => api.get('/reports/monthly', { params: { month } }),
 };
 
+// Fechas en hora local ("2026-10-15" / "2026-10"). toISOString() usa hora UTC y en Argentina,
+// pasadas las 21 hs, ya devolvería el día siguiente.
+const pad2 = (n) => String(n).padStart(2, '0');
+export const localDate = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const localMonth = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+// Suma (o resta) días a una fecha "YYYY-MM-DD" sin problemas de huso horario
+export const addDays = (dateStr, n) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return localDate(new Date(y, m - 1, d + n));
+};
+
 export const fmt = {
   currency: (n) => `$${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
   date: (d) => d ? new Date(d).toLocaleDateString('es-AR') : '-',
