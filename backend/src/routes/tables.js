@@ -19,6 +19,23 @@ router.get('/', (req, res) => {
   res.json(tables);
 });
 
+// Cuánto uso tuvo una mesa (para avisar antes de eliminarla). Solo admin, igual que eliminar.
+function tableUsage(tableId) {
+  const orders = db.prepare(`
+    SELECT COUNT(*) AS n,
+           COALESCE(SUM(CASE WHEN status = 'closed' THEN total ELSE 0 END), 0) AS closed_total
+    FROM orders WHERE table_id = ?
+  `).get(tableId);
+  const reservations = db.prepare('SELECT COUNT(*) AS n FROM reservations WHERE table_id = ?').get(tableId);
+  return { orders_count: orders.n, closed_total: orders.closed_total, reservations_count: reservations.n };
+}
+
+router.get('/:id/usage', requireRole('admin'), (req, res) => {
+  const table = db.prepare('SELECT id FROM tables WHERE id = ?').get(req.params.id);
+  if (!table) return res.status(404).json({ error: 'Mesa no encontrada' });
+  res.json(tableUsage(table.id));
+});
+
 router.get('/:id', (req, res) => {
   const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!table) return res.status(404).json({ error: 'Mesa no encontrada' });
@@ -75,11 +92,28 @@ router.put('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', (req, res) => {
+// Eliminar una mesa: solo admin. Si la mesa tiene historial (comandas o reservas) hay que
+// confirmarlo con ?confirm=1. Las comandas NO se borran: quedan sin mesa asignada pero conservan
+// el número de mesa, así que las ventas siguen sumando en caja, facturas y reportes.
+router.delete('/:id', requireRole('admin'), (req, res) => {
   const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!table) return res.status(404).json({ error: 'Mesa no encontrada' });
   if (table.status === 'occupied') return res.status(400).json({ error: 'No se puede eliminar una mesa ocupada' });
-  db.prepare('DELETE FROM tables WHERE id = ?').run(req.params.id);
+  if (db.prepare("SELECT 1 FROM orders WHERE table_id = ? AND status = 'open'").get(table.id)) {
+    return res.status(400).json({ error: 'La mesa tiene una comanda abierta' });
+  }
+
+  const usage = tableUsage(table.id);
+  const hasHistory = usage.orders_count > 0 || usage.reservations_count > 0;
+  if (hasHistory && req.query.confirm !== '1') {
+    return res.status(409).json({ error: 'La mesa tiene historial. Hay que confirmar para eliminarla.', ...usage });
+  }
+
+  db.transaction(() => {
+    db.prepare('UPDATE orders SET table_id = NULL WHERE table_id = ?').run(table.id);
+    db.prepare('UPDATE reservations SET table_id = NULL WHERE table_id = ?').run(table.id);
+    db.prepare('DELETE FROM tables WHERE id = ?').run(table.id);
+  })();
   res.json({ ok: true });
 });
 

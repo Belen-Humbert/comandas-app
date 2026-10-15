@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight } from 'lucide-react';
-import { tables, orders } from '../lib/api';
+import { Plus, RefreshCw, Users, Utensils, X, Trash2, Move, Check, ArrowLeftRight, History, AlertTriangle, Moon } from 'lucide-react';
+import { tables, orders, workdays, fmt } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import TableHistory from '../components/TableHistory';
 
 // ---- Plano de mesas ----
 // El plano tiene un tamaño lógico fijo y se escala para entrar en la pantalla, así la
@@ -83,6 +84,10 @@ export default function TablesPage() {
   const [addTableModal, setAddTableModal] = useState(false);
   const [newTable, setNewTable] = useState({ number: '', name: '', capacity: 4, zone: 'salon' });
   const [deleteMode, setDeleteMode] = useState(false);
+  const [historyTable, setHistoryTable] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { table, usage, deleting }
+  const [workDay, setWorkDay] = useState(null); // jornada abierta (o null si todavía no empezó)
+  const [closeDayModal, setCloseDayModal] = useState(null); // { closing }
 
   // Modo "ordenar mesas": los cambios quedan en un borrador hasta apretar Guardar
   const [editMode, setEditMode] = useState(false);
@@ -100,8 +105,9 @@ export default function TablesPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await tables.list();
+      const [data, wd] = await Promise.all([tables.list(), workdays.current().catch(() => ({ current: null }))]);
       setTableList(data);
+      setWorkDay(wd.current);
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -185,16 +191,47 @@ export default function TablesPage() {
     }
   };
 
+  // Eliminar una mesa: primero se abre una ventana de aviso. Se consulta cuánto uso tuvo la mesa
+  // para advertir si tiene historial; recién al confirmar se elimina.
   const handleDeleteTable = async (e, table) => {
     e.stopPropagation();
     if (table.status === 'occupied') return toast.error('No se puede eliminar una mesa ocupada');
-    if (!window.confirm(`¿Eliminar ${table.name}?`)) return;
+    setDeleteTarget({ table, usage: null, deleting: false });
     try {
-      await tables.delete(table.id);
-      toast.success('Mesa eliminada');
+      const usage = await tables.usage(table.id);
+      setDeleteTarget(prev => (prev && prev.table.id === table.id ? { ...prev, usage } : prev));
+    } catch (err) {
+      setDeleteTarget(null);
+      toast.error(err.message);
+    }
+  };
+
+  const confirmDeleteTable = async () => {
+    const { table, usage } = deleteTarget;
+    setDeleteTarget(prev => ({ ...prev, deleting: true }));
+    try {
+      const hasHistory = usage.orders_count > 0 || usage.reservations_count > 0;
+      await tables.delete(table.id, hasHistory);
+      toast.success(`${table.name} eliminada`);
+      setDeleteTarget(null);
+      load();
+    } catch (err) {
+      setDeleteTarget(prev => (prev ? { ...prev, deleting: false } : prev));
+      toast.error(err.message);
+    }
+  };
+
+  // ---- Cerrar jornada ----
+  const handleCloseDay = async () => {
+    setCloseDayModal(m => ({ ...m, closing: true }));
+    try {
+      await workdays.close();
+      toast.success('Jornada cerrada. La próxima comanda abre una nueva');
+      setCloseDayModal(null);
       load();
     } catch (e) {
       toast.error(e.message);
+      setCloseDayModal(null);
     }
   };
 
@@ -322,11 +359,21 @@ export default function TablesPage() {
                   <Move className="w-4 h-4" /> Ordenar mesas
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  onClick={() => setDeleteMode(d => !d)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${deleteMode ? 'bg-red-100 border-red-300 text-red-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Trash2 className="w-4 h-4" /> {deleteMode ? 'Cancelar' : 'Eliminar'}
+                </button>
+              )}
               <button
-                onClick={() => setDeleteMode(d => !d)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${deleteMode ? 'bg-red-100 border-red-300 text-red-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                onClick={() => setCloseDayModal({ closing: false })}
+                disabled={!workDay}
+                title={workDay ? 'Cerrar la jornada de hoy' : 'No hay jornada abierta: empieza con la primera comanda'}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
-                <Trash2 className="w-4 h-4" /> {deleteMode ? 'Cancelar' : 'Eliminar'}
+                <Moon className="w-4 h-4" /> Cerrar jornada
               </button>
               <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Agregar mesa
@@ -409,6 +456,17 @@ export default function TablesPage() {
                         <X className="w-3 h-3 text-white" />
                       </span>
                     )}
+                    {!editMode && !deleteMode && (
+                      <span
+                        role="button"
+                        aria-label={`Historial de ${table.name}`}
+                        title="Ver historial de la mesa"
+                        onClick={(e) => { e.stopPropagation(); setHistoryTable(table); }}
+                        className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/15 hover:bg-black/30 flex items-center justify-center cursor-pointer"
+                      >
+                        <History className="w-3.5 h-3.5 text-white" />
+                      </span>
+                    )}
                     {editMode && (
                       <span
                         role="button"
@@ -445,6 +503,81 @@ export default function TablesPage() {
         <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-red-500" /> Ocupada</div>
         <div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded bg-yellow-400" /> Reservada</div>
       </div>
+
+      {historyTable && <TableHistory table={historyTable} onClose={() => setHistoryTable(null)} />}
+
+      {closeDayModal && workDay && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !closeDayModal.closing && setCloseDayModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" role="dialog" aria-label="Cerrar jornada" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-2">Cerrar jornada</h2>
+            <p className="text-sm text-gray-600">
+              {workDay.orders_count} {workDay.orders_count === 1 ? 'comanda' : 'comandas'} · {fmt.currency(workDay.total)} cobrados.
+              Al cerrar, el historial de hoy queda guardado y la próxima comanda empieza una jornada nueva.
+            </p>
+            {workDay.open_orders > 0 && (
+              <p data-testid="close-day-blocked" className="mt-3 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3">
+                Todavía hay {workDay.open_orders} {workDay.open_orders === 1 ? 'mesa con comanda abierta' : 'mesas con comanda abierta'}. Cobrá o cancelá las comandas antes de cerrar.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setCloseDayModal(null)} disabled={closeDayModal.closing} className="btn-secondary">Cancelar</button>
+              <button onClick={handleCloseDay} disabled={closeDayModal.closing || workDay.open_orders > 0} className="btn-primary">
+                {closeDayModal.closing ? 'Cerrando...' : 'Sí, cerrar jornada'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Delete Table */}
+      {deleteTarget && (() => {
+        const { table, usage, deleting } = deleteTarget;
+        const hasHistory = usage && (usage.orders_count > 0 || usage.reservations_count > 0);
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !deleting && setDeleteTarget(null)}>
+            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" role="dialog" aria-label={`Eliminar ${table.name}`} onClick={e => e.stopPropagation()}>
+              <h2 className="text-xl font-bold mb-3">Eliminar {table.name}</h2>
+
+              {!usage && <p className="text-gray-400 py-4">Revisando el historial de la mesa...</p>}
+
+              {usage && !hasHistory && (
+                <p className="text-gray-600 mb-2">Esta mesa no tiene comandas ni reservas. ¿Querés eliminarla?</p>
+              )}
+
+              {usage && hasHistory && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-2 text-sm text-amber-900" data-testid="delete-warning">
+                  <p className="flex items-center gap-2 font-semibold mb-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" /> Esta mesa tiene historial
+                  </p>
+                  <ul className="list-disc pl-5 space-y-0.5 mb-2">
+                    {usage.orders_count > 0 && (
+                      <li>
+                        {usage.orders_count} {usage.orders_count === 1 ? 'comanda' : 'comandas'}
+                        {usage.closed_total > 0 && <> ({fmt.currency(usage.closed_total)} cobrados)</>}
+                      </li>
+                    )}
+                    {usage.reservations_count > 0 && (
+                      <li>{usage.reservations_count} {usage.reservations_count === 1 ? 'reserva' : 'reservas'}</li>
+                    )}
+                  </ul>
+                  <p>
+                    Si la eliminás ya no vas a poder ver su historial. Las ventas siguen sumando en la caja y en el
+                    dashboard{usage.reservations_count > 0 && ', y las reservas quedan sin mesa asignada'}.
+                    Esta acción no se puede deshacer.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-5">
+                <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="btn-secondary flex-1">Cancelar</button>
+                <button onClick={confirmDeleteTable} disabled={!usage || deleting} className="btn-danger flex-1">
+                  {deleting ? 'Eliminando...' : hasHistory ? 'Sí, eliminar mesa y su historial' : 'Sí, eliminar mesa'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal: Add Table */}
       {addTableModal && (

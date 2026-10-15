@@ -42,7 +42,9 @@ export const tables = {
   get: (id) => api.get(`/tables/${id}`),
   create: (data) => api.post('/tables', data),
   update: (id, data) => api.put(`/tables/${id}`, data),
-  delete: (id) => api.delete(`/tables/${id}`),
+  usage: (id) => api.get(`/tables/${id}/usage`),
+  // confirm=true es necesario cuando la mesa tiene historial (comandas o reservas)
+  delete: (id, confirm = false) => api.delete(`/tables/${id}`, { params: confirm ? { confirm: 1 } : {} }),
   saveLayout: (list) => api.put('/tables/layout', { tables: list }),
 };
 
@@ -68,6 +70,13 @@ export const orders = {
   close: (id, data) => api.post(`/orders/${id}/close`, data),
   cancel: (id) => api.post(`/orders/${id}/cancel`),
   print: (id) => api.post(`/orders/${id}/print`),
+};
+
+// Jornada de trabajo: abre sola con la primera comanda y se cierra a mano al terminar el servicio
+export const workdays = {
+  current: () => api.get('/workdays/current'),
+  list: (limit) => api.get('/workdays', { params: limit ? { limit } : {} }),
+  close: () => api.post('/workdays/close'),
 };
 
 export const invoices = {
@@ -122,6 +131,17 @@ export const reports = {
   daily: (date) => api.get('/reports/daily', { params: { date } }),
   weekly: () => api.get('/reports/weekly'),
   monthly: (month) => api.get('/reports/monthly', { params: { month } }),
+};
+
+// Fechas en hora local ("2026-10-15" / "2026-10"). toISOString() usa hora UTC y en Argentina,
+// pasadas las 21 hs, ya devolvería el día siguiente.
+const pad2 = (n) => String(n).padStart(2, '0');
+export const localDate = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const localMonth = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+// Suma (o resta) días a una fecha "YYYY-MM-DD" sin problemas de huso horario
+export const addDays = (dateStr, n) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return localDate(new Date(y, m - 1, d + n));
 };
 
 export const fmt = {

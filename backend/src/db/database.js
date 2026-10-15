@@ -49,6 +49,16 @@ function initializeDatabase() {
       stock_item_id INTEGER
     );
 
+    -- Jornada de trabajo: empieza con la primera comanda y termina cuando el local la cierra
+    -- (no coincide con el día del calendario: puede cerrar a las 00:50, 01:30, 02:00...)
+    CREATE TABLE IF NOT EXISTS work_days (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      opened_at TEXT DEFAULT (datetime('now','localtime')),
+      closed_at TEXT,
+      status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed')),
+      closed_by TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       table_id INTEGER REFERENCES tables(id),
@@ -59,7 +69,9 @@ function initializeDatabase() {
       total REAL DEFAULT 0,
       payment_method TEXT CHECK(payment_method IN ('efectivo', 'transferencia', 'tarjeta', 'mixto', NULL)),
       created_at TEXT DEFAULT (datetime('now','localtime')),
-      closed_at TEXT
+      closed_at TEXT,
+      table_zone TEXT,
+      work_day_id INTEGER REFERENCES work_days(id)
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -201,6 +213,38 @@ function initializeDatabase() {
   }
   if (!tableCols.includes('layout_x')) db.exec('ALTER TABLE tables ADD COLUMN layout_x REAL');
   if (!tableCols.includes('layout_y')) db.exec('ALTER TABLE tables ADD COLUMN layout_y REAL');
+
+  // Migración: cada comanda guarda en qué zona estaba su mesa (salón/vereda) al abrirse, para que
+  // las estadísticas por zona se mantengan aunque la mesa cambie de zona o se elimine más adelante.
+  // Las comandas anteriores toman la zona actual de su mesa (lo mejor que se puede saber).
+  const orderCols = db.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
+  if (!orderCols.includes('table_zone')) {
+    db.exec('ALTER TABLE orders ADD COLUMN table_zone TEXT');
+    db.exec('UPDATE orders SET table_zone = (SELECT zone FROM tables WHERE tables.id = orders.table_id) WHERE table_id IS NOT NULL');
+  }
+
+  // Jornadas: las comandas anteriores se agrupan por día del calendario (una jornada por fecha).
+  // Solo queda abierta la última, y únicamente si es de hoy o tiene comandas en curso.
+  if (!orderCols.includes('work_day_id')) {
+    db.exec('ALTER TABLE orders ADD COLUMN work_day_id INTEGER REFERENCES work_days(id)');
+    const days = db.prepare(`
+      SELECT date(created_at) AS day, MIN(created_at) AS opened_at,
+             MAX(COALESCE(closed_at, created_at)) AS last_at,
+             SUM(status = 'open') AS open_orders
+      FROM orders GROUP BY day ORDER BY day
+    `).all();
+    const today = db.prepare("SELECT date('now','localtime') AS d").get().d;
+    const insertDay = db.prepare('INSERT INTO work_days (opened_at, closed_at, status) VALUES (?, ?, ?)');
+    const setDay = db.prepare('UPDATE orders SET work_day_id = ? WHERE date(created_at) = ?');
+    db.transaction(() => {
+      days.forEach((d, i) => {
+        const isLast = i === days.length - 1;
+        const keepOpen = isLast && (d.day === today || d.open_orders > 0);
+        const id = insertDay.run(d.opened_at, keepOpen ? null : d.last_at, keepOpen ? 'open' : 'closed').lastInsertRowid;
+        setDay.run(id, d.day);
+      });
+    })();
+  }
 
   // Seed default tables if none exist
 
