@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const { requireRole } = require('../middleware/auth');
+
+const ZONES = ['salon', 'vereda'];
+const MAX_COORD = 4000; // tope de seguridad; el plano del frontend es bastante más chico
 
 router.get('/', (req, res) => {
   const tables = db.prepare(`
@@ -22,16 +26,46 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { number, name, capacity, position_x, position_y } = req.body;
+  const { number, name, capacity, position_x, position_y, zone } = req.body;
   if (!number) return res.status(400).json({ error: 'Número de mesa requerido' });
+  if (zone !== undefined && !ZONES.includes(zone)) return res.status(400).json({ error: 'Zona inválida' });
   try {
+    // La mesa nueva queda sin ubicar (layout NULL): el frontend la acomoda en un lugar libre
     const result = db.prepare(
-      'INSERT INTO tables (number, name, capacity, position_x, position_y) VALUES (?, ?, ?, ?, ?)'
-    ).run(number, name || `Mesa ${number}`, capacity || 4, position_x || 0, position_y || 0);
+      'INSERT INTO tables (number, name, capacity, position_x, position_y, zone) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(number, name || `Mesa ${number}`, capacity || 4, position_x || 0, position_y || 0, zone || 'salon');
     res.json({ id: result.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: 'Número de mesa ya existe' });
   }
+});
+
+// Guarda la distribución del plano: zona y posición de varias mesas de una vez (solo admin).
+// Va antes de '/:id' para que 'layout' no se interprete como un id.
+router.put('/layout', requireRole('admin'), (req, res) => {
+  const list = req.body && req.body.tables;
+  if (!Array.isArray(list) || list.length === 0) {
+    return res.status(400).json({ error: 'Se esperaba una lista de mesas' });
+  }
+
+  for (const t of list) {
+    if (!Number.isInteger(t.id)) return res.status(400).json({ error: 'Mesa inválida en la lista' });
+    if (!ZONES.includes(t.zone)) return res.status(400).json({ error: 'Zona inválida' });
+    if (!Number.isFinite(t.layout_x) || !Number.isFinite(t.layout_y)) {
+      return res.status(400).json({ error: 'Posición inválida' });
+    }
+  }
+
+  const clamp = (n) => Math.min(MAX_COORD, Math.max(0, Math.round(n)));
+  const update = db.prepare('UPDATE tables SET zone=?, layout_x=?, layout_y=? WHERE id=?');
+  const saveAll = db.transaction(() => {
+    let updated = 0;
+    for (const t of list) {
+      updated += update.run(t.zone, clamp(t.layout_x), clamp(t.layout_y), t.id).changes;
+    }
+    return updated;
+  });
+  res.json({ ok: true, updated: saveAll() });
 });
 
 router.put('/:id', (req, res) => {
