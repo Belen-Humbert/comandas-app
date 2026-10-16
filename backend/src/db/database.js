@@ -27,6 +27,10 @@ function initializeDatabase() {
       full_name TEXT,
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tables (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       number INTEGER NOT NULL UNIQUE,
       name TEXT,
       capacity INTEGER DEFAULT 4,
@@ -38,17 +42,6 @@ function initializeDatabase() {
       layout_x REAL,
       layout_y REAL
     );
-
-    CREATE TABLE IF NOT EXISTS tables (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  number INTEGER NOT NULL UNIQUE,
-  name TEXT,
-  capacity INTEGER DEFAULT 4,
-  status TEXT DEFAULT 'free' CHECK(status IN ('free', 'occupied', 'reserved')),
-  current_order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
-  position_x INTEGER DEFAULT 0,
-  position_y INTEGER DEFAULT 0
-);
 
     CREATE TABLE IF NOT EXISTS menu_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -273,6 +266,12 @@ function initializeDatabase() {
     const upd = db.prepare("UPDATE menu_categories SET kind = 'bebida' WHERE lower(name) LIKE ?");
     words.forEach(w => upd.run(`%${w}%`));
   }
+
+  // Columnas agregadas con el descuento de stock y los usuarios: en bases que ya existían
+  // hay que sumarlas (CREATE TABLE IF NOT EXISTS no modifica tablas viejas).
+  const hasCol = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col);
+  if (!hasCol('orders', 'user_id')) db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)');
+  if (!hasCol('stock_movements', 'order_id')) db.exec('ALTER TABLE stock_movements ADD COLUMN order_id INTEGER REFERENCES orders(id)');
 
   // Seed default tables if none exist
   const tableCount = db.prepare('SELECT COUNT(*) as count FROM tables').get();
