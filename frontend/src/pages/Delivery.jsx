@@ -84,7 +84,8 @@ export default function DeliveryPage() {
       id = created.id;
       // Se cobra con la misma ruta que las mesas (caja, stock...). Si falla, no queda un pedido colgado.
       try {
-        await orders.close(id, { payment_method: form.payment_method });
+        // notes: la ruta de cobro reemplaza las observaciones por lo que reciba, así que se vuelven a mandar
+        await orders.close(id, { payment_method: form.payment_method, notes: form.notes.trim() || null });
       } catch (e) {
         await orders.cancel(id).catch(() => {});
         throw e;
