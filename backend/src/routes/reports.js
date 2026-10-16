@@ -55,6 +55,47 @@ router.get('/daily', (req, res) => {
   res.json({ date, sales, byPayment, topItems, hourlySales });
 });
 
+// Momentos del día según la hora en que se abrió la comanda. La madrugada (antes de las 6)
+// cuenta como cena, porque es el final del servicio de la noche.
+const PERIODS = [
+  { key: 'desayuno', label: 'Desayuno', hours: 'hasta las 12' },
+  { key: 'almuerzo', label: 'Almuerzo', hours: '12 a 16 hs' },
+  { key: 'merienda', label: 'Merienda', hours: '16 a 20 hs' },
+  { key: 'cena', label: 'Cena', hours: 'desde las 20 hs' },
+];
+const PERIOD_SQL = `CASE
+  WHEN CAST(strftime('%H', o.created_at) AS INTEGER) >= 6  AND CAST(strftime('%H', o.created_at) AS INTEGER) < 12 THEN 'desayuno'
+  WHEN CAST(strftime('%H', o.created_at) AS INTEGER) >= 12 AND CAST(strftime('%H', o.created_at) AS INTEGER) < 16 THEN 'almuerzo'
+  WHEN CAST(strftime('%H', o.created_at) AS INTEGER) >= 16 AND CAST(strftime('%H', o.created_at) AS INTEGER) < 20 THEN 'merienda'
+  ELSE 'cena' END`;
+
+// Lo más pedido de los últimos 7 días, por momento del día y separado en platos y bebidas
+const byPeriod = (limit = 10) => {
+  const rows = db.prepare(`
+    SELECT ${PERIOD_SQL} AS period, COALESCE(mc.kind, 'comida') AS kind, oi.name,
+           SUM(oi.quantity) AS qty, SUM(oi.quantity * oi.unit_price) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    LEFT JOIN work_days w ON w.id = o.work_day_id
+    LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+    LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+    WHERE o.status = 'closed' AND ${BD} >= date('now','localtime','-6 days')
+    GROUP BY period, kind, oi.name
+    ORDER BY qty DESC, revenue DESC, oi.name
+  `).all();
+  const orders = db.prepare(`
+    SELECT ${PERIOD_SQL} AS period, COUNT(*) AS orders_count, COALESCE(SUM(o.total),0) AS revenue
+    FROM ${FROM} WHERE o.status = 'closed' AND ${BD} >= date('now','localtime','-6 days')
+    GROUP BY period
+  `).all();
+  return PERIODS.map(p => {
+    const o = orders.find(x => x.period === p.key) || { orders_count: 0, revenue: 0 };
+    const pick = (kind) => rows.filter(r => r.period === p.key && r.kind === kind).slice(0, limit)
+      .map(({ name, qty, revenue }) => ({ name, qty, revenue }));
+    return { ...p, orders_count: o.orders_count, revenue: o.revenue, dishes: pick('comida'), drinks: pick('bebida') };
+  });
+};
+
 // Weekly summary
 router.get('/weekly', (req, res) => {
   const days = db.prepare(`
@@ -77,7 +118,7 @@ router.get('/weekly', (req, res) => {
     GROUP BY oi.name ORDER BY qty DESC LIMIT 10
   `).all();
 
-  res.json({ days, total, topItems });
+  res.json({ days, total, topItems, byPeriod: byPeriod() });
 });
 
 // Monthly summary

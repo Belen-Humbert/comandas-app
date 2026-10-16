@@ -20,6 +20,67 @@ const PAYMENT_COLORS = {
   mixto: '#f59e0b',
 };
 
+// Lista numerada: 1, 2, 3... con la cantidad pedida al costado
+function RankList({ title, items, testid }) {
+  return (
+    <div data-testid={testid}>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{title}</h4>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400">Sin ventas</p>
+      ) : (
+        <ol className="divide-y divide-gray-100">
+          {items.map((i, n) => (
+            <li key={i.name} className="flex items-center gap-3 py-2 text-sm">
+              <span className="w-5 text-center text-xs font-semibold text-gray-400">{n + 1}</span>
+              <span className="flex-1 truncate text-gray-800">{i.name}</span>
+              <span className="font-bold text-gray-900">{i.qty}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// Lo más pedido por momento del día: una pestaña por momento, se ve uno por vez
+function PeriodStats({ periods }) {
+  const best = periods.reduce((m, p) => (p.revenue > m.revenue ? p : m), periods[0]);
+  const [picked, setPicked] = useState(null);
+  const current = periods.find(p => p.key === (picked || best.key)) || best;
+  return (
+    <div className="card mt-6" data-testid="period-stats">
+      <h3 className="font-bold">Lo más pedido por momento del día</h3>
+      <p className="text-xs text-gray-400 mb-4">Últimos 7 días, según la hora en que se abrió la comanda. La madrugada cuenta como cena.</p>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5" role="tablist">
+        {periods.map(p => {
+          const active = p.key === current.key;
+          const empty = p.orders_count === 0;
+          return (
+            <button
+              key={p.key}
+              role="tab"
+              aria-selected={active}
+              data-testid={`tab-${p.key}`}
+              onClick={() => setPicked(p.key)}
+              className={`text-left rounded-xl border px-3 py-2 transition-colors ${active ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:bg-gray-50'} ${empty && !active ? 'opacity-50' : ''}`}
+            >
+              <p className={`text-sm font-semibold ${active ? 'text-amber-700' : 'text-gray-800'}`}>{p.label}</p>
+              <p className="text-xs text-gray-500">{empty ? 'Sin ventas' : `${p.orders_count} ${p.orders_count === 1 ? 'comanda' : 'comandas'} · ${fmt.currency(p.revenue)}`}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-gray-400 mb-3" data-testid="period-current">{current.label} · {current.hours}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+        <RankList title="Platos" items={current.dishes.slice(0, 5)} testid="current-dishes" />
+        <RankList title="Bebidas" items={current.drinks.slice(0, 5)} testid="current-drinks" />
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ title, value, subtitle, icon: Icon, color = 'amber' }) {
   const colors = {
     amber: 'bg-amber-50 text-amber-600',
@@ -187,18 +248,25 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          <div className="card">
-            <h3 className="font-bold mb-4">Top 10 productos (semana)</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={weeklyData.topItems} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" tickFormatter={v => String(v)} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="qty" fill="#f59e0b" radius={[0, 4, 4, 0]} name="Cantidad" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="card" data-testid="top-items">
+            <h3 className="font-bold mb-3">Top 10 productos (semana)</h3>
+            {weeklyData.topItems.length === 0 ? (
+              <p className="text-sm text-gray-400">Sin ventas</p>
+            ) : (
+              <ol className="grid grid-cols-1 md:grid-cols-2 md:grid-flow-col md:grid-rows-5 gap-x-8">
+                {weeklyData.topItems.map((i, n) => (
+                  <li key={i.name} className="flex items-center gap-3 py-2 text-sm border-b border-gray-100">
+                    <span className="w-5 text-center text-xs font-semibold text-gray-400">{n + 1}</span>
+                    <span className="flex-1 truncate text-gray-800">{i.name}</span>
+                    <span className="text-xs text-gray-400">{fmt.currency(i.revenue)}</span>
+                    <span className="w-8 text-right font-bold text-gray-900">{i.qty}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
+
+          {weeklyData.byPeriod && <PeriodStats periods={weeklyData.byPeriod} />}
         </div>
       )}
 

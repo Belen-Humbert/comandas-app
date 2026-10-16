@@ -15,7 +15,7 @@ export default function MenuPage() {
   const [showNewItem, setShowNewItem] = useState(false);
   const [showNewCat, setShowNewCat] = useState(false);
   const [itemForm, setItemForm] = useState({ name: '', description: '', price: '', category_id: '', available: true });
-  const [catForm, setCatForm] = useState({ name: '', color: '#6366f1' });
+  const [catForm, setCatForm] = useState({ name: '', color: '#6366f1', kind: 'comida' });
 
   const load = async () => {
     const [cats, its] = await Promise.all([menu.categories(), menu.items()]);
@@ -60,7 +60,7 @@ export default function MenuPage() {
       toast.success(editingCat ? 'Categoría actualizada' : 'Categoría creada');
       setEditingCat(null);
       setShowNewCat(false);
-      setCatForm({ name: '', color: '#6366f1' });
+      setCatForm({ name: '', color: '#6366f1', kind: 'comida' });
       load();
     } catch (e) { toast.error(e.message); }
   };
@@ -80,7 +80,7 @@ export default function MenuPage() {
         <div className="p-4 border-b border-gray-700 flex items-center justify-between">
           <h2 className="font-bold text-sm uppercase tracking-wide text-gray-300">Categorías</h2>
           {isAdmin && (
-            <button onClick={() => { setShowNewCat(true); setEditingCat(null); setCatForm({ name: '', color: '#6366f1' }); }} className="p-1 hover:bg-gray-700 rounded">
+            <button onClick={() => { setShowNewCat(true); setEditingCat(null); setCatForm({ name: '', color: '#6366f1', kind: 'comida' }); }} className="p-1 hover:bg-gray-700 rounded">
               <Plus className="w-4 h-4" />
             </button>
           )}
@@ -90,8 +90,9 @@ export default function MenuPage() {
             <div key={cat.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer group ${selectedCat === cat.id ? 'bg-amber-500' : 'hover:bg-gray-800'}`} onClick={() => setSelectedCat(cat.id)}>
               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
               <span className="text-sm flex-1 truncate">{cat.name}</span>
+              {cat.kind === 'bebida' && <span className="text-[10px] uppercase tracking-wide opacity-60">bebida</span>}
               {isAdmin && (
-                <button onClick={e => { e.stopPropagation(); setEditingCat(cat); setCatForm({ name: cat.name, color: cat.color }); setShowNewCat(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-700 rounded">
+                <button onClick={e => { e.stopPropagation(); setEditingCat(cat); setCatForm({ name: cat.name, color: cat.color, kind: cat.kind || 'comida' }); setShowNewCat(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-700 rounded">
                   <Edit2 className="w-3 h-3" />
                 </button>
               )}
@@ -196,6 +197,13 @@ export default function MenuPage() {
               <div>
                 <label className="label">Nombre *</label>
                 <input value={catForm.name} onChange={e => setCatForm(f => ({ ...f, name: e.target.value }))} className="input" placeholder="Ej: Bebidas" autoFocus />
+              </div>
+              <div>
+                <label className="label">Tipo (para las estadísticas)</label>
+                <select value={catForm.kind} onChange={e => setCatForm(f => ({ ...f, kind: e.target.value }))} className="input" aria-label="Tipo de categoría">
+                  <option value="comida">Comida (platos, postres, etc.)</option>
+                  <option value="bebida">Bebida</option>
+                </select>
               </div>
               <div>
                 <label className="label">Color</label>
