@@ -20,29 +20,63 @@ const PAYMENT_COLORS = {
   mixto: '#f59e0b',
 };
 
-// Lista con barras: qué tanto se pidió cada cosa respecto de lo más pedido del grupo
-function RankList({ title, items, color, testid }) {
-  const max = Math.max(1, ...items.map(i => i.qty));
+// Lista numerada: 1, 2, 3... con la cantidad pedida al costado
+function RankList({ title, items, testid }) {
   return (
     <div data-testid={testid}>
       <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{title}</h4>
       {items.length === 0 ? (
         <p className="text-sm text-gray-400">Sin ventas</p>
       ) : (
-        <ol className="space-y-1.5">
-          {items.map(i => (
-            <li key={i.name} className="text-sm">
-              <div className="flex justify-between gap-2">
-                <span className="truncate text-gray-800">{i.name}</span>
-                <span className="font-semibold text-gray-900 flex-shrink-0">{i.qty}</span>
-              </div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${(i.qty / max) * 100}%`, backgroundColor: color }} />
-              </div>
+        <ol className="divide-y divide-gray-100">
+          {items.map((i, n) => (
+            <li key={i.name} className="flex items-center gap-3 py-2 text-sm">
+              <span className="w-5 text-center text-xs font-semibold text-gray-400">{n + 1}</span>
+              <span className="flex-1 truncate text-gray-800">{i.name}</span>
+              <span className="font-bold text-gray-900">{i.qty}</span>
             </li>
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+// Lo más pedido por momento del día: una pestaña por momento, se ve uno por vez
+function PeriodStats({ periods }) {
+  const best = periods.reduce((m, p) => (p.revenue > m.revenue ? p : m), periods[0]);
+  const [picked, setPicked] = useState(null);
+  const current = periods.find(p => p.key === (picked || best.key)) || best;
+  return (
+    <div className="card mt-6" data-testid="period-stats">
+      <h3 className="font-bold">Lo más pedido por momento del día</h3>
+      <p className="text-xs text-gray-400 mb-4">Últimos 7 días, según la hora en que se abrió la comanda. La madrugada cuenta como cena.</p>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5" role="tablist">
+        {periods.map(p => {
+          const active = p.key === current.key;
+          const empty = p.orders_count === 0;
+          return (
+            <button
+              key={p.key}
+              role="tab"
+              aria-selected={active}
+              data-testid={`tab-${p.key}`}
+              onClick={() => setPicked(p.key)}
+              className={`text-left rounded-xl border px-3 py-2 transition-colors ${active ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:bg-gray-50'} ${empty && !active ? 'opacity-50' : ''}`}
+            >
+              <p className={`text-sm font-semibold ${active ? 'text-amber-700' : 'text-gray-800'}`}>{p.label}</p>
+              <p className="text-xs text-gray-500">{empty ? 'Sin ventas' : `${p.orders_count} ${p.orders_count === 1 ? 'comanda' : 'comandas'} · ${fmt.currency(p.revenue)}`}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-gray-400 mb-3" data-testid="period-current">{current.label} · {current.hours}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+        <RankList title="Platos" items={current.dishes.slice(0, 5)} testid="current-dishes" />
+        <RankList title="Bebidas" items={current.drinks.slice(0, 5)} testid="current-drinks" />
+      </div>
     </div>
   );
 }
@@ -214,43 +248,25 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          <div className="card">
-            <h3 className="font-bold mb-4">Top 10 productos (semana)</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={weeklyData.topItems} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" tickFormatter={v => String(v)} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="qty" fill="#f59e0b" radius={[0, 4, 4, 0]} name="Cantidad" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="card" data-testid="top-items">
+            <h3 className="font-bold mb-3">Top 10 productos (semana)</h3>
+            {weeklyData.topItems.length === 0 ? (
+              <p className="text-sm text-gray-400">Sin ventas</p>
+            ) : (
+              <ol className="grid grid-cols-1 md:grid-cols-2 md:grid-flow-col md:grid-rows-5 gap-x-8">
+                {weeklyData.topItems.map((i, n) => (
+                  <li key={i.name} className="flex items-center gap-3 py-2 text-sm border-b border-gray-100">
+                    <span className="w-5 text-center text-xs font-semibold text-gray-400">{n + 1}</span>
+                    <span className="flex-1 truncate text-gray-800">{i.name}</span>
+                    <span className="text-xs text-gray-400">{fmt.currency(i.revenue)}</span>
+                    <span className="w-8 text-right font-bold text-gray-900">{i.qty}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
 
-          {weeklyData.byPeriod && (
-            <div className="mt-6" data-testid="period-stats">
-              <h3 className="font-bold mb-1">Lo más pedido por momento del día</h3>
-              <p className="text-xs text-gray-400 mb-4">
-                Últimos 7 días, según la hora en que se abrió la comanda. La madrugada cuenta como cena.
-              </p>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {weeklyData.byPeriod.map(p => (
-                  <div key={p.key} className="card" data-testid={`period-${p.key}`}>
-                    <div className="flex items-baseline justify-between mb-3">
-                      <h4 className="font-bold text-lg">{p.label} <span className="text-xs font-normal text-gray-400">{p.hours}</span></h4>
-                      <span className="text-xs text-gray-500">
-                        {p.orders_count} {p.orders_count === 1 ? 'comanda' : 'comandas'} · {fmt.currency(p.revenue)}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <RankList title="Platos" items={p.dishes.slice(0, 5)} color="#f59e0b" testid={`${p.key}-dishes`} />
-                      <RankList title="Bebidas" items={p.drinks.slice(0, 5)} color="#3b82f6" testid={`${p.key}-drinks`} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {weeklyData.byPeriod && <PeriodStats periods={weeklyData.byPeriod} />}
         </div>
       )}
 
