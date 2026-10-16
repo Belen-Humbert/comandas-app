@@ -21,6 +21,7 @@ app.use('/api/auth', require('./routes/auth'));
 // Rutas de salón: accesibles para 'salon' y 'admin' (cualquier usuario logueado)
 app.use('/api/tables', requireAuth, require('./routes/tables'));
 app.use('/api/orders', requireAuth, require('./routes/orders'));
+app.use('/api/workdays', requireAuth, require('./routes/workdays'));
 app.use('/api/invoices', requireAuth, require('./routes/invoices'));
 app.use('/api/reservations', requireAuth, require('./routes/reservations'));
 app.use('/api/cash', requireAuth, require('./routes/cash'));

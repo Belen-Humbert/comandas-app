@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const { ensureWorkDay } = require('./workdays');
 
 // Get all open orders
 router.get('/', (req, res) => {
-  const { status, date } = req.query;
+  const { status, date, table_id, work_day_id, limit } = req.query;
   let query = `
     SELECT o.*, t.number as table_number_ref, t.name as table_name_ref,
            COUNT(oi.id) as item_count
@@ -16,8 +17,28 @@ router.get('/', (req, res) => {
   const where = [];
   if (status) { where.push('o.status = ?'); params.push(status); }
   if (date) { where.push("date(o.created_at) = ?"); params.push(date); }
+  if (work_day_id) {
+    const wid = Number(work_day_id);
+    if (!Number.isInteger(wid)) return res.status(400).json({ error: 'Jornada inválida' });
+    where.push('o.work_day_id = ?');
+    params.push(wid);
+  }
+  if (table_id) {
+    const id = Number(table_id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Mesa inválida' });
+    where.push('o.table_id = ?');
+    params.push(id);
+  }
   if (where.length) query += ' WHERE ' + where.join(' AND ');
-  query += ' GROUP BY o.id ORDER BY o.created_at DESC';
+  query += ' GROUP BY o.id ORDER BY o.created_at DESC, o.id DESC';
+
+  // Límite opcional (para el historial de una mesa); sin límite se devuelve todo como antes
+  if (limit !== undefined) {
+    const n = Number(limit);
+    if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: 'Límite inválido' });
+    query += ' LIMIT ?';
+    params.push(Math.min(n, 500));
+  }
   res.json(db.prepare(query).all(...params));
 });
 
@@ -47,9 +68,11 @@ router.post('/', (req, res) => {
   const openOrder = db.prepare("SELECT id FROM orders WHERE table_id = ? AND status = 'open'").get(table_id);
   if (openOrder) return res.status(400).json({ error: 'La mesa ya tiene una comanda abierta', order_id: openOrder.id });
 
+  // La comanda queda anotada en la jornada abierta (si todavía no hay, esta comanda la abre)
+  const workDay = ensureWorkDay();
   const result = db.prepare(
-    'INSERT INTO orders (table_id, table_number, persons_count, notes, user_id) VALUES (?, ?, ?, ?, ?)'
-  ).run(table_id, table.number, persons_count || 1, notes, req.user?.id || null);
+    'INSERT INTO orders (table_id, table_number, persons_count, notes, table_zone, work_day_id) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(table_id, table.number, persons_count || 1, notes, table.zone, workDay.id);
 
   db.prepare("UPDATE tables SET status = 'occupied', current_order_id = ? WHERE id = ?")
     .run(result.lastInsertRowid, table_id);

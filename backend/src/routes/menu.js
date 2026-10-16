@@ -9,16 +9,22 @@ router.get('/categories', (req, res) => {
   res.json(cats);
 });
 
+const KINDS = ['comida', 'bebida'];
+
 router.post('/categories',requireRole('admin'), (req, res) => {
-  const { name, order_index, color } = req.body;
+  const { name, order_index, color, kind } = req.body;
   if (!name) return res.status(400).json({ error: 'Nombre requerido' });
-  const result = db.prepare('INSERT INTO menu_categories (name, order_index, color) VALUES (?, ?, ?)').run(name, order_index || 0, color || '#6366f1');
+  if (kind !== undefined && !KINDS.includes(kind)) return res.status(400).json({ error: 'Tipo inválido (comida o bebida)' });
+  const result = db.prepare('INSERT INTO menu_categories (name, order_index, color, kind) VALUES (?, ?, ?, ?)').run(name, order_index || 0, color || '#6366f1', kind || 'comida');
   res.json({ id: result.lastInsertRowid });
 });
 
 router.put('/categories/:id',requireRole('admin'), (req, res) => {
-  const { name, order_index, color } = req.body;
-  db.prepare('UPDATE menu_categories SET name=?, order_index=?, color=? WHERE id=?').run(name, order_index, color, req.params.id);
+  const { name, order_index, color, kind } = req.body;
+  if (kind !== undefined && !KINDS.includes(kind)) return res.status(400).json({ error: 'Tipo inválido (comida o bebida)' });
+  // order_index y kind se conservan si no vienen en el pedido
+  db.prepare('UPDATE menu_categories SET name=?, order_index=COALESCE(?, order_index), color=?, kind=COALESCE(?, kind) WHERE id=?')
+    .run(name, order_index ?? null, color, kind ?? null, req.params.id);
   res.json({ ok: true });
 });
 

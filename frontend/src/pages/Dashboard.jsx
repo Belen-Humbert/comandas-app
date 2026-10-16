@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { TrendingUp, ShoppingBag, Users, DollarSign, Calendar, BarChart3 } from 'lucide-react';
-import { reports, fmt } from '../lib/api';
+import { reports, fmt, localDate, localMonth } from '../lib/api';
 
-const today = () => new Date().toISOString().split('T')[0];
-const thisMonth = () => new Date().toISOString().slice(0, 7);
+// Hora local (no UTC): pasadas las 21 hs en Argentina, toISOString() ya devolvería el día siguiente
+const today = () => localDate();
+// "2026-10-15" -> "15/10/2026" (sin pasar por Date: evita correrse un día por el huso horario)
+const dayText = (d) => (d ? d.split('-').reverse().join('/') : '-');
+const thisMonth = () => localMonth();
+
+const ZONE_LABELS = { salon: 'Salón', vereda: 'Vereda', sin_zona: 'Sin zona' };
+const ZONE_COLORS = { salon: '#6366f1', vereda: '#10b981', sin_zona: '#9ca3af' };
+const zoneLabel = (z) => ZONE_LABELS[z] || '-';
 
 const PAYMENT_COLORS = {
   efectivo: '#10b981',
@@ -12,6 +19,67 @@ const PAYMENT_COLORS = {
   tarjeta: '#8b5cf6',
   mixto: '#f59e0b',
 };
+
+// Lista numerada: 1, 2, 3... con la cantidad pedida al costado
+function RankList({ title, items, testid }) {
+  return (
+    <div data-testid={testid}>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{title}</h4>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400">Sin ventas</p>
+      ) : (
+        <ol className="divide-y divide-gray-100">
+          {items.map((i, n) => (
+            <li key={i.name} className="flex items-center gap-3 py-2 text-sm">
+              <span className="w-5 text-center text-xs font-semibold text-gray-400">{n + 1}</span>
+              <span className="flex-1 truncate text-gray-800">{i.name}</span>
+              <span className="font-bold text-gray-900">{i.qty}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// Lo más pedido por momento del día: una pestaña por momento, se ve uno por vez
+function PeriodStats({ periods }) {
+  const best = periods.reduce((m, p) => (p.revenue > m.revenue ? p : m), periods[0]);
+  const [picked, setPicked] = useState(null);
+  const current = periods.find(p => p.key === (picked || best.key)) || best;
+  return (
+    <div className="card mt-6" data-testid="period-stats">
+      <h3 className="font-bold">Lo más pedido por momento del día</h3>
+      <p className="text-xs text-gray-400 mb-4">Últimos 7 días, según la hora en que se abrió la comanda. La madrugada cuenta como cena.</p>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5" role="tablist">
+        {periods.map(p => {
+          const active = p.key === current.key;
+          const empty = p.orders_count === 0;
+          return (
+            <button
+              key={p.key}
+              role="tab"
+              aria-selected={active}
+              data-testid={`tab-${p.key}`}
+              onClick={() => setPicked(p.key)}
+              className={`text-left rounded-xl border px-3 py-2 transition-colors ${active ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:bg-gray-50'} ${empty && !active ? 'opacity-50' : ''}`}
+            >
+              <p className={`text-sm font-semibold ${active ? 'text-amber-700' : 'text-gray-800'}`}>{p.label}</p>
+              <p className="text-xs text-gray-500">{empty ? 'Sin ventas' : `${p.orders_count} ${p.orders_count === 1 ? 'comanda' : 'comandas'} · ${fmt.currency(p.revenue)}`}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-gray-400 mb-3" data-testid="period-current">{current.label} · {current.hours}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+        <RankList title="Platos" items={current.dishes.slice(0, 5)} testid="current-dishes" />
+        <RankList title="Bebidas" items={current.drinks.slice(0, 5)} testid="current-drinks" />
+      </div>
+    </div>
+  );
+}
 
 function StatCard({ title, value, subtitle, icon: Icon, color = 'amber' }) {
   const colors = {
@@ -39,7 +107,7 @@ export default function DashboardPage() {
   const [dailyData, setDailyData] = useState(null);
   const [weeklyData, setWeeklyData] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(today());
+  const [selectedDate, setSelectedDate] = useState(''); // vacío = jornada actual (la define el servidor)
   const [selectedMonth, setSelectedMonth] = useState(thisMonth());
 
   useEffect(() => {
@@ -49,8 +117,9 @@ export default function DashboardPage() {
   }, [tab, selectedDate, selectedMonth]);
 
   const loadDaily = async () => {
-    const data = await reports.daily(selectedDate);
+    const data = await reports.daily(selectedDate || undefined);
     setDailyData(data);
+    if (!selectedDate) setSelectedDate(data.date);
   };
 
   const loadWeekly = async () => {
@@ -93,7 +162,7 @@ export default function DashboardPage() {
                 <StatCard title="Ingresos" value={fmt.currency(dailyData.sales.total_revenue)} icon={DollarSign} color="green" />
                 <StatCard title="Comandas" value={dailyData.sales.orders_count} icon={ShoppingBag} color="blue" />
                 <StatCard title="Ticket promedio" value={fmt.currency(dailyData.sales.avg_ticket)} icon={TrendingUp} color="purple" />
-                <StatCard title="Fecha" value={fmt.date(selectedDate)} icon={Calendar} color="amber" />
+                <StatCard title="Jornada" value={dayText(selectedDate)} icon={Calendar} color="amber" />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -179,18 +248,25 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          <div className="card">
-            <h3 className="font-bold mb-4">Top 10 productos (semana)</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={weeklyData.topItems} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" tickFormatter={v => String(v)} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="qty" fill="#f59e0b" radius={[0, 4, 4, 0]} name="Cantidad" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="card" data-testid="top-items">
+            <h3 className="font-bold mb-3">Top 10 productos (semana)</h3>
+            {weeklyData.topItems.length === 0 ? (
+              <p className="text-sm text-gray-400">Sin ventas</p>
+            ) : (
+              <ol className="grid grid-cols-1 md:grid-cols-2 md:grid-flow-col md:grid-rows-5 gap-x-8">
+                {weeklyData.topItems.map((i, n) => (
+                  <li key={i.name} className="flex items-center gap-3 py-2 text-sm border-b border-gray-100">
+                    <span className="w-5 text-center text-xs font-semibold text-gray-400">{n + 1}</span>
+                    <span className="flex-1 truncate text-gray-800">{i.name}</span>
+                    <span className="text-xs text-gray-400">{fmt.currency(i.revenue)}</span>
+                    <span className="w-8 text-right font-bold text-gray-900">{i.qty}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
+
+          {weeklyData.byPeriod && <PeriodStats periods={weeklyData.byPeriod} />}
         </div>
       )}
 
@@ -205,7 +281,16 @@ export default function DashboardPage() {
                 <StatCard title="Ingresos del mes" value={fmt.currency(monthlyData.total.total_revenue)} icon={DollarSign} color="green" />
                 <StatCard title="Comandas" value={monthlyData.total.orders_count} icon={ShoppingBag} color="blue" />
                 <StatCard title="Ticket promedio" value={fmt.currency(monthlyData.total.avg_ticket)} icon={TrendingUp} color="purple" />
-                <StatCard title="Gastos proveedores" value={fmt.currency(monthlyData.supplierCosts.total)} icon={Users} color="amber" />
+                <StatCard title="Gastos proveedores" value={fmt.currency(monthlyData.supplierCosts.total)} icon={DollarSign} color="amber" />
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <StatCard title="Personas atendidas" value={monthlyData.total.persons} icon={Users} color="blue" />
+                <StatCard
+                  title="Gasto por persona"
+                  value={fmt.currency(monthlyData.total.persons > 0 ? monthlyData.total.total_revenue / monthlyData.total.persons : 0)}
+                  icon={TrendingUp}
+                  color="purple"
+                />
               </div>
 
               {/* Revenue evolution */}
@@ -220,6 +305,83 @@ export default function DashboardPage() {
                     <Bar dataKey="revenue" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+
+              {/* Ventas por zona */}
+              <div className="card mb-6">
+                <h3 className="font-bold mb-4">Ventas por zona</h3>
+                {monthlyData.byZone.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="zone-stats">
+                    {monthlyData.byZone.map(z => {
+                      const share = monthlyData.total.total_revenue > 0 ? (z.revenue / monthlyData.total.total_revenue) * 100 : 0;
+                      return (
+                        <div key={z.zone} className="border border-gray-100 rounded-xl p-4">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: ZONE_COLORS[z.zone] || '#9ca3af' }} />
+                            <span className="font-semibold">{zoneLabel(z.zone)}</span>
+                            <span className="ml-auto text-sm text-gray-400">{share.toFixed(0)}%</span>
+                          </div>
+                          <p className="text-2xl font-bold text-gray-900">{fmt.currency(z.revenue)}</p>
+                          <div className="h-1.5 bg-gray-100 rounded-full my-2">
+                            <div className="h-1.5 rounded-full" style={{ width: `${share}%`, backgroundColor: ZONE_COLORS[z.zone] || '#9ca3af' }} />
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            {z.orders_count} {z.orders_count === 1 ? 'comanda' : 'comandas'} · {z.persons} pers. · ticket {fmt.currency(z.avg_ticket)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : <p className="text-gray-400 text-sm py-6 text-center">Sin ventas este mes</p>}
+                {monthlyData.byZone.some(z => z.zone === 'sin_zona') && (
+                  <p className="text-xs text-gray-400 mt-3">"Sin zona" son comandas de mesas que ya no existen o anteriores a que se separara salón y vereda.</p>
+                )}
+              </div>
+
+              {/* Ventas por mesa */}
+              <div className="card mb-6">
+                <h3 className="font-bold mb-4">Mesas del mes</h3>
+                {monthlyData.byTable.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={Math.max(160, Math.min(monthlyData.byTable.length, 10) * 30)}>
+                      <BarChart data={monthlyData.byTable.slice(0, 10).map(t => ({ ...t, label: `Mesa ${t.table_number}` }))} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" tickFormatter={v => fmt.currency(v)} />
+                        <YAxis type="category" dataKey="label" width={70} tick={{ fontSize: 12 }} />
+                        <Tooltip formatter={v => fmt.currency(v)} />
+                        <Bar dataKey="revenue" name="Facturación" radius={[0, 4, 4, 0]}>
+                          {monthlyData.byTable.slice(0, 10).map((t, i) => <Cell key={i} fill={ZONE_COLORS[t.zone] || '#9ca3af'} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="overflow-x-auto mt-4">
+                      <table className="w-full text-sm" data-testid="table-stats">
+                        <thead className="text-gray-500 text-left">
+                          <tr>
+                            <th className="py-2 pr-3 font-medium">Mesa</th>
+                            <th className="py-2 pr-3 font-medium">Zona</th>
+                            <th className="py-2 pr-3 font-medium text-right">Comandas</th>
+                            <th className="py-2 pr-3 font-medium text-right">Personas</th>
+                            <th className="py-2 pr-3 font-medium text-right">Ticket prom.</th>
+                            <th className="py-2 font-medium text-right">Facturación</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {monthlyData.byTable.map(t => (
+                            <tr key={t.table_number ?? 'x'}>
+                              <td className="py-2 pr-3 font-medium">{t.table_number != null ? `Mesa ${t.table_number}` : 'Sin mesa'}</td>
+                              <td className="py-2 pr-3 text-gray-500">{zoneLabel(t.zone || 'sin_zona')}</td>
+                              <td className="py-2 pr-3 text-right">{t.orders_count}</td>
+                              <td className="py-2 pr-3 text-right">{t.persons}</td>
+                              <td className="py-2 pr-3 text-right">{fmt.currency(t.avg_ticket)}</td>
+                              <td className="py-2 text-right font-semibold">{fmt.currency(t.revenue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : <p className="text-gray-400 text-sm py-6 text-center">Sin ventas este mes</p>}
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">

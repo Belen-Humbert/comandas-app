@@ -27,6 +27,16 @@ function initializeDatabase() {
       full_name TEXT,
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now','localtime'))
+      number INTEGER NOT NULL UNIQUE,
+      name TEXT,
+      capacity INTEGER DEFAULT 4,
+      status TEXT DEFAULT 'free' CHECK(status IN ('free', 'occupied', 'reserved')),
+      current_order_id INTEGER,
+      position_x INTEGER DEFAULT 0,
+      position_y INTEGER DEFAULT 0,
+      zone TEXT NOT NULL DEFAULT 'salon' CHECK(zone IN ('salon', 'vereda')),
+      layout_x REAL,
+      layout_y REAL
     );
 
     CREATE TABLE IF NOT EXISTS tables (
@@ -44,7 +54,8 @@ function initializeDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       order_index INTEGER DEFAULT 0,
-      color TEXT DEFAULT '#6366f1'
+      color TEXT DEFAULT '#6366f1',
+      kind TEXT NOT NULL DEFAULT 'comida' CHECK(kind IN ('comida', 'bebida'))
     );
 
     CREATE TABLE IF NOT EXISTS menu_items (
@@ -62,6 +73,16 @@ function initializeDatabase() {
       menu_item_id INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
       stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
       quantity_per_unit REAL NOT NULL
+  );
+  
+    -- Jornada de trabajo: empieza con la primera comanda y termina cuando el local la cierra
+    -- (no coincide con el día del calendario: puede cerrar a las 00:50, 01:30, 02:00...)
+    CREATE TABLE IF NOT EXISTS work_days (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      opened_at TEXT DEFAULT (datetime('now','localtime')),
+      closed_at TEXT,
+      status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed')),
+      closed_by TEXT
     );
 
     CREATE TABLE IF NOT EXISTS orders (
@@ -75,7 +96,9 @@ function initializeDatabase() {
       total REAL DEFAULT 0,
       payment_method TEXT CHECK(payment_method IN ('efectivo', 'transferencia', 'tarjeta', 'mixto')),
       created_at TEXT DEFAULT (datetime('now','localtime')),
-      closed_at TEXT
+      closed_at TEXT,
+      table_zone TEXT,
+      work_day_id INTEGER REFERENCES work_days(id)
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -198,6 +221,59 @@ function initializeDatabase() {
     );
   `);
 
+  // Migración: bases creadas antes de existir las zonas (salón/vereda) y la distribución libre.
+  // layout_x/layout_y = posición en el plano (NULL = todavía sin ubicar, el frontend la acomoda sola).
+  // position_x/position_y quedan como columnas heredadas y ya no se usan.
+  const tableCols = db.prepare("PRAGMA table_info(tables)").all().map(c => c.name);
+  if (!tableCols.includes('zone')) {
+    db.exec("ALTER TABLE tables ADD COLUMN zone TEXT NOT NULL DEFAULT 'salon' CHECK(zone IN ('salon', 'vereda'))");
+  }
+  if (!tableCols.includes('layout_x')) db.exec('ALTER TABLE tables ADD COLUMN layout_x REAL');
+  if (!tableCols.includes('layout_y')) db.exec('ALTER TABLE tables ADD COLUMN layout_y REAL');
+
+  // Migración: cada comanda guarda en qué zona estaba su mesa (salón/vereda) al abrirse, para que
+  // las estadísticas por zona se mantengan aunque la mesa cambie de zona o se elimine más adelante.
+  // Las comandas anteriores toman la zona actual de su mesa (lo mejor que se puede saber).
+  const orderCols = db.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
+  if (!orderCols.includes('table_zone')) {
+    db.exec('ALTER TABLE orders ADD COLUMN table_zone TEXT');
+    db.exec('UPDATE orders SET table_zone = (SELECT zone FROM tables WHERE tables.id = orders.table_id) WHERE table_id IS NOT NULL');
+  }
+
+  // Jornadas: las comandas anteriores se agrupan por día del calendario (una jornada por fecha).
+  // Solo queda abierta la última, y únicamente si es de hoy o tiene comandas en curso.
+  if (!orderCols.includes('work_day_id')) {
+    db.exec('ALTER TABLE orders ADD COLUMN work_day_id INTEGER REFERENCES work_days(id)');
+    const days = db.prepare(`
+      SELECT date(created_at) AS day, MIN(created_at) AS opened_at,
+             MAX(COALESCE(closed_at, created_at)) AS last_at,
+             SUM(status = 'open') AS open_orders
+      FROM orders GROUP BY day ORDER BY day
+    `).all();
+    const today = db.prepare("SELECT date('now','localtime') AS d").get().d;
+    const insertDay = db.prepare('INSERT INTO work_days (opened_at, closed_at, status) VALUES (?, ?, ?)');
+    const setDay = db.prepare('UPDATE orders SET work_day_id = ? WHERE date(created_at) = ?');
+    db.transaction(() => {
+      days.forEach((d, i) => {
+        const isLast = i === days.length - 1;
+        const keepOpen = isLast && (d.day === today || d.open_orders > 0);
+        const id = insertDay.run(d.opened_at, keepOpen ? null : d.last_at, keepOpen ? 'open' : 'closed').lastInsertRowid;
+        setDay.run(id, d.day);
+      });
+    })();
+  }
+
+  // Tipo de categoría (comida / bebida) para separar platos de bebidas en las estadísticas.
+  // En bases existentes se deduce del nombre; después se puede cambiar desde el Menú.
+  const catCols = db.prepare("PRAGMA table_info(menu_categories)").all().map(c => c.name);
+  if (!catCols.includes('kind')) {
+    db.exec("ALTER TABLE menu_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'comida' CHECK(kind IN ('comida', 'bebida'))");
+    const words = ['bebida', 'gaseosa', 'cerveza', 'vino', 'cafe', 'café', 'jugo', 'agua', 'trago', 'coctel', 'cóctel',
+      'licuado', 'infusion', 'infusión', 'whisky', 'licor', 'aperitivo', 'champagne', 'espumante', 'fernet'];
+    const upd = db.prepare("UPDATE menu_categories SET kind = 'bebida' WHERE lower(name) LIKE ?");
+    words.forEach(w => upd.run(`%${w}%`));
+  }
+
   // Seed default tables if none exist
   const tableCount = db.prepare('SELECT COUNT(*) as count FROM tables').get();
   if (tableCount.count === 0) {
@@ -215,12 +291,14 @@ function initializeDatabase() {
   const catCount = db.prepare('SELECT COUNT(*) as count FROM menu_categories').get();
   if (catCount.count === 0) {
     const insertCat = db.prepare('INSERT INTO menu_categories (name, order_index, color) VALUES (?, ?, ?)');
+    const setKind = db.prepare("UPDATE menu_categories SET kind = 'bebida' WHERE id = ?");
     const insertItem = db.prepare('INSERT INTO menu_items (category_id, name, price, available) VALUES (?, ?, ?, 1)');
 
     const entradas = insertCat.run('Entradas', 0, '#f59e0b').lastInsertRowid;
     const principales = insertCat.run('Platos Principales', 1, '#ef4444').lastInsertRowid;
     const bebidas = insertCat.run('Bebidas', 2, '#3b82f6').lastInsertRowid;
     const postres = insertCat.run('Postres', 3, '#8b5cf6').lastInsertRowid;
+    setKind.run(bebidas);
 
     [['Empanadas (x6)', 1500], ['Tabla de fiambres', 2800], ['Provoleta', 1800], ['Croquetas', 1200]].forEach(([n, p]) => insertItem.run(entradas, n, p));
     [['Milanesa napolitana', 3500], ['Bife de lomo', 5200], ['Pollo al horno', 3200], ['Pasta del día', 2800], ['Ravioles', 2600], ['Tallarines', 2400]].forEach(([n, p]) => insertItem.run(principales, n, p));

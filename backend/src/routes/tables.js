@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const { requireRole } = require('../middleware/auth');
+
+const ZONES = ['salon', 'vereda'];
+const MAX_COORD = 4000; // tope de seguridad; el plano del frontend es bastante más chico
 
 router.get('/', (req, res) => {
   const tables = db.prepare(`
@@ -15,6 +19,23 @@ router.get('/', (req, res) => {
   res.json(tables);
 });
 
+// Cuánto uso tuvo una mesa (para avisar antes de eliminarla). Solo admin, igual que eliminar.
+function tableUsage(tableId) {
+  const orders = db.prepare(`
+    SELECT COUNT(*) AS n,
+           COALESCE(SUM(CASE WHEN status = 'closed' THEN total ELSE 0 END), 0) AS closed_total
+    FROM orders WHERE table_id = ?
+  `).get(tableId);
+  const reservations = db.prepare('SELECT COUNT(*) AS n FROM reservations WHERE table_id = ?').get(tableId);
+  return { orders_count: orders.n, closed_total: orders.closed_total, reservations_count: reservations.n };
+}
+
+router.get('/:id/usage', requireRole('admin'), (req, res) => {
+  const table = db.prepare('SELECT id FROM tables WHERE id = ?').get(req.params.id);
+  if (!table) return res.status(404).json({ error: 'Mesa no encontrada' });
+  res.json(tableUsage(table.id));
+});
+
 router.get('/:id', (req, res) => {
   const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!table) return res.status(404).json({ error: 'Mesa no encontrada' });
@@ -22,16 +43,46 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { number, name, capacity, position_x, position_y } = req.body;
+  const { number, name, capacity, position_x, position_y, zone } = req.body;
   if (!number) return res.status(400).json({ error: 'Número de mesa requerido' });
+  if (zone !== undefined && !ZONES.includes(zone)) return res.status(400).json({ error: 'Zona inválida' });
   try {
+    // La mesa nueva queda sin ubicar (layout NULL): el frontend la acomoda en un lugar libre
     const result = db.prepare(
-      'INSERT INTO tables (number, name, capacity, position_x, position_y) VALUES (?, ?, ?, ?, ?)'
-    ).run(number, name || `Mesa ${number}`, capacity || 4, position_x || 0, position_y || 0);
+      'INSERT INTO tables (number, name, capacity, position_x, position_y, zone) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(number, name || `Mesa ${number}`, capacity || 4, position_x || 0, position_y || 0, zone || 'salon');
     res.json({ id: result.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: 'Número de mesa ya existe' });
   }
+});
+
+// Guarda la distribución del plano: zona y posición de varias mesas de una vez (solo admin).
+// Va antes de '/:id' para que 'layout' no se interprete como un id.
+router.put('/layout', requireRole('admin'), (req, res) => {
+  const list = req.body && req.body.tables;
+  if (!Array.isArray(list) || list.length === 0) {
+    return res.status(400).json({ error: 'Se esperaba una lista de mesas' });
+  }
+
+  for (const t of list) {
+    if (!Number.isInteger(t.id)) return res.status(400).json({ error: 'Mesa inválida en la lista' });
+    if (!ZONES.includes(t.zone)) return res.status(400).json({ error: 'Zona inválida' });
+    if (!Number.isFinite(t.layout_x) || !Number.isFinite(t.layout_y)) {
+      return res.status(400).json({ error: 'Posición inválida' });
+    }
+  }
+
+  const clamp = (n) => Math.min(MAX_COORD, Math.max(0, Math.round(n)));
+  const update = db.prepare('UPDATE tables SET zone=?, layout_x=?, layout_y=? WHERE id=?');
+  const saveAll = db.transaction(() => {
+    let updated = 0;
+    for (const t of list) {
+      updated += update.run(t.zone, clamp(t.layout_x), clamp(t.layout_y), t.id).changes;
+    }
+    return updated;
+  });
+  res.json({ ok: true, updated: saveAll() });
 });
 
 router.put('/:id', (req, res) => {
@@ -41,11 +92,28 @@ router.put('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', (req, res) => {
+// Eliminar una mesa: solo admin. Si la mesa tiene historial (comandas o reservas) hay que
+// confirmarlo con ?confirm=1. Las comandas NO se borran: quedan sin mesa asignada pero conservan
+// el número de mesa, así que las ventas siguen sumando en caja, facturas y reportes.
+router.delete('/:id', requireRole('admin'), (req, res) => {
   const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!table) return res.status(404).json({ error: 'Mesa no encontrada' });
   if (table.status === 'occupied') return res.status(400).json({ error: 'No se puede eliminar una mesa ocupada' });
-  db.prepare('DELETE FROM tables WHERE id = ?').run(req.params.id);
+  if (db.prepare("SELECT 1 FROM orders WHERE table_id = ? AND status = 'open'").get(table.id)) {
+    return res.status(400).json({ error: 'La mesa tiene una comanda abierta' });
+  }
+
+  const usage = tableUsage(table.id);
+  const hasHistory = usage.orders_count > 0 || usage.reservations_count > 0;
+  if (hasHistory && req.query.confirm !== '1') {
+    return res.status(409).json({ error: 'La mesa tiene historial. Hay que confirmar para eliminarla.', ...usage });
+  }
+
+  db.transaction(() => {
+    db.prepare('UPDATE orders SET table_id = NULL WHERE table_id = ?').run(table.id);
+    db.prepare('UPDATE reservations SET table_id = NULL WHERE table_id = ?').run(table.id);
+    db.prepare('DELETE FROM tables WHERE id = ?').run(table.id);
+  })();
   res.json({ ok: true });
 });
 
