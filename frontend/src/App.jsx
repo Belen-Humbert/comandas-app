@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast';
 import {
   LayoutGrid, UtensilsCrossed, BookOpen, Calendar,
-  Wallet, Truck, Package, BarChart3, Users, LogOut
+  Wallet, Truck, Package, BarChart3, Users, LogOut, Bike
 } from 'lucide-react';
 
 import { useAuth } from './lib/auth';
@@ -17,10 +17,12 @@ import SuppliersPage from './pages/Suppliers';
 import StockPage from './pages/Stock';
 import DashboardPage from './pages/Dashboard';
 import UsersPage from './pages/Users';
+import DeliveryPage from './pages/Delivery';
 
 // adminOnly: coincide con las rutas que el backend restringe al rol 'admin'
 const NAV_ITEMS = [
   { to: '/', label: 'Mesas', icon: LayoutGrid, exact: true },
+  { to: '/delivery', label: 'Delivery', icon: Bike },
   { to: '/menu', label: 'Menú', icon: BookOpen },
   { to: '/reservations', label: 'Reservas', icon: Calendar },
   { to: '/cash', label: 'Caja', icon: Wallet },
@@ -119,6 +121,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<TablesPage />} />
           <Route path="/order/:id" element={<OrderPage />} />
+          <Route path="/delivery" element={<DeliveryPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/reservations" element={<ReservationsPage />} />
           <Route path="/cash" element={<CashPage />} />

@@ -9,8 +9,8 @@ const today = () => localDate();
 const dayText = (d) => (d ? d.split('-').reverse().join('/') : '-');
 const thisMonth = () => localMonth();
 
-const ZONE_LABELS = { salon: 'Salón', vereda: 'Vereda', sin_zona: 'Sin zona' };
-const ZONE_COLORS = { salon: '#6366f1', vereda: '#10b981', sin_zona: '#9ca3af' };
+const ZONE_LABELS = { salon: 'Salón', vereda: 'Vereda', delivery: 'Delivery', takeaway: 'Take Away', sin_zona: 'Sin zona' };
+const ZONE_COLORS = { salon: '#6366f1', vereda: '#10b981', delivery: '#f59e0b', takeaway: '#ec4899', sin_zona: '#9ca3af' };
 const zoneLabel = (z) => ZONE_LABELS[z] || '-';
 
 const PAYMENT_COLORS = {
