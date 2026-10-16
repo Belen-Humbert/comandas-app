@@ -185,6 +185,22 @@ router.post('/:id/close', (req, res) => {
     db.prepare("UPDATE tables SET status='free', current_order_id=NULL WHERE id=?")
       .run(order.table_id);
 
+    // Descontar stock según la receta de cada ítem vendido
+    const soldItems = db.prepare('SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?').all(req.params.id);
+    for (const sold of soldItems) {
+      if (!sold.menu_item_id) continue; // ítem cargado a mano, sin producto de menú vinculado
+      const ingredients = db.prepare('SELECT * FROM recipe_ingredients WHERE menu_item_id = ?').all(sold.menu_item_id);
+      for (const ing of ingredients) {
+        const consumed = ing.quantity_per_unit * sold.quantity;
+        const stockItem = db.prepare('SELECT current_quantity FROM stock_items WHERE id = ?').get(ing.stock_item_id);
+        if (!stockItem) continue;
+        const newQty = Math.max(0, stockItem.current_quantity - consumed);
+        db.prepare('UPDATE stock_items SET current_quantity = ? WHERE id = ?').run(newQty, ing.stock_item_id);
+        db.prepare("INSERT INTO stock_movements (stock_item_id, order_id, type, quantity, notes) VALUES (?, ?, 'out', ?, ?)")
+          .run(ing.stock_item_id, req.params.id, consumed, `Venta automática - Comanda #${req.params.id}`);
+      }
+    }
+
     // Register cash movement for efectivo payments
     if (payment_method === 'efectivo' || payment_method === 'mixto') {
       const openRegister = db.prepare("SELECT id FROM cash_registers WHERE status='open' ORDER BY id DESC LIMIT 1").get();
