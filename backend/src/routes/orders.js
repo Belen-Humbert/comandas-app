@@ -48,8 +48,8 @@ router.post('/', (req, res) => {
   if (openOrder) return res.status(400).json({ error: 'La mesa ya tiene una comanda abierta', order_id: openOrder.id });
 
   const result = db.prepare(
-    'INSERT INTO orders (table_id, table_number, persons_count, notes) VALUES (?, ?, ?, ?)'
-  ).run(table_id, table.number, persons_count || 1, notes);
+    'INSERT INTO orders (table_id, table_number, persons_count, notes, user_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(table_id, table.number, persons_count || 1, notes, req.user?.id || null);
 
   db.prepare("UPDATE tables SET status = 'occupied', current_order_id = ? WHERE id = ?")
     .run(result.lastInsertRowid, table_id);
@@ -109,6 +109,22 @@ router.post('/:id/close', (req, res) => {
       .run(payment_method, notes, req.params.id);
     db.prepare("UPDATE tables SET status='free', current_order_id=NULL WHERE id=?")
       .run(order.table_id);
+
+    // Descontar stock según la receta de cada ítem vendido
+    const soldItems = db.prepare('SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?').all(req.params.id);
+    for (const sold of soldItems) {
+      if (!sold.menu_item_id) continue; // ítem cargado a mano, sin producto de menú vinculado
+      const ingredients = db.prepare('SELECT * FROM recipe_ingredients WHERE menu_item_id = ?').all(sold.menu_item_id);
+      for (const ing of ingredients) {
+        const consumed = ing.quantity_per_unit * sold.quantity;
+        const stockItem = db.prepare('SELECT current_quantity FROM stock_items WHERE id = ?').get(ing.stock_item_id);
+        if (!stockItem) continue;
+        const newQty = Math.max(0, stockItem.current_quantity - consumed);
+        db.prepare('UPDATE stock_items SET current_quantity = ? WHERE id = ?').run(newQty, ing.stock_item_id);
+        db.prepare("INSERT INTO stock_movements (stock_item_id, order_id, type, quantity, notes) VALUES (?, ?, 'out', ?, ?)")
+          .run(ing.stock_item_id, req.params.id, consumed, `Venta automática - Comanda #${req.params.id}`);
+      }
+    }
 
     // Register cash movement for efectivo payments
     if (payment_method === 'efectivo' || payment_method === 'mixto') {

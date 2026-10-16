@@ -1,7 +1,8 @@
 const Database = require('better-sqlite3');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
-const bcrypt = require('bcryptjs');
+
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/comandas.db');
 
 // Ensure data directory exists
@@ -18,16 +19,26 @@ db.pragma('foreign_keys = ON');
 
 function initializeDatabase() {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS tables (
+    CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      number INTEGER NOT NULL UNIQUE,
-      name TEXT,
-      capacity INTEGER DEFAULT 4,
-      status TEXT DEFAULT 'free' CHECK(status IN ('free', 'occupied', 'reserved')),
-      current_order_id INTEGER,
-      position_x INTEGER DEFAULT 0,
-      position_y INTEGER DEFAULT 0
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('salon', 'admin')),
+      full_name TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+
+    CREATE TABLE IF NOT EXISTS tables (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  number INTEGER NOT NULL UNIQUE,
+  name TEXT,
+  capacity INTEGER DEFAULT 4,
+  status TEXT DEFAULT 'free' CHECK(status IN ('free', 'occupied', 'reserved')),
+  current_order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  position_x INTEGER DEFAULT 0,
+  position_y INTEGER DEFAULT 0
+);
 
     CREATE TABLE IF NOT EXISTS menu_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +49,7 @@ function initializeDatabase() {
 
     CREATE TABLE IF NOT EXISTS menu_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      category_id INTEGER NOT NULL REFERENCES menu_categories(id) ON DELETE SET NULL,
+      category_id INTEGER NOT NULL REFERENCES menu_categories(id) ON DELETE RESTRICT,
       name TEXT NOT NULL,
       description TEXT,
       price REAL NOT NULL,
@@ -46,15 +57,23 @@ function initializeDatabase() {
       stock_item_id INTEGER
     );
 
+    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      menu_item_id INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+      stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+      quantity_per_unit REAL NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       table_id INTEGER REFERENCES tables(id),
+      user_id INTEGER REFERENCES users(id),
       table_number INTEGER,
       persons_count INTEGER DEFAULT 1,
       status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed', 'cancelled')),
       notes TEXT,
       total REAL DEFAULT 0,
-      payment_method TEXT CHECK(payment_method IN ('efectivo', 'transferencia', 'tarjeta', 'mixto', NULL)),
+      payment_method TEXT CHECK(payment_method IN ('efectivo', 'transferencia', 'tarjeta', 'mixto')),
       created_at TEXT DEFAULT (datetime('now','localtime')),
       closed_at TEXT
     );
@@ -170,34 +189,16 @@ function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       stock_item_id INTEGER NOT NULL REFERENCES stock_items(id),
+      order_id INTEGER REFERENCES orders(id),
       type TEXT NOT NULL CHECK(type IN ('in', 'out', 'adjustment')),
       quantity REAL NOT NULL,
       notes TEXT,
       date TEXT DEFAULT (date('now','localtime')),
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
-    
-    CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('salon', 'admin')),
-  full_name TEXT,
-  active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
-);
-
   `);
 
   // Seed default tables if none exist
-
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  if (userCount.count === 0) {
-    const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)')
-      .run('admin', hash, 'admin', 'Administrador');
-  }
-
   const tableCount = db.prepare('SELECT COUNT(*) as count FROM tables').get();
   if (tableCount.count === 0) {
     const insertTable = db.prepare('INSERT INTO tables (number, name, capacity, position_x, position_y) VALUES (?, ?, ?, ?, ?)');
@@ -232,6 +233,14 @@ function initializeDatabase() {
   if (stockCatCount.count === 0) {
     const insertStockCat = db.prepare('INSERT INTO stock_categories (name) VALUES (?)');
     ['Carnes', 'Verduras', 'Lácteos', 'Bebidas', 'Almacén', 'Limpieza'].forEach(n => insertStockCat.run(n));
+  }
+
+  // Seed default admin user — CAMBIAR esta contraseña apenas se pruebe por primera vez
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  if (userCount.count === 0) {
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)')
+      .run('admin', hash, 'admin', 'Administrador');
   }
 }
 

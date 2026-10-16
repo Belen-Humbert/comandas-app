@@ -32,6 +32,7 @@ app.use('/api/menu', requireAuth, require('./routes/menu'));
 // Rutas exclusivas de la oficina: solo 'admin'
 app.use('/api/suppliers', requireAuth, requireRole('admin'), require('./routes/suppliers'));
 app.use('/api/stock', requireAuth, requireRole('admin'), require('./routes/stock'));
+app.use('/api/recipes', requireAuth, requireRole('admin'), require('./routes/recipes'));
 app.use('/api/reports', requireAuth, requireRole('admin'), require('./routes/reports'));
 
 // Serve frontend in production
