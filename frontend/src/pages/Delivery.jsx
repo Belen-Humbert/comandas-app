@@ -3,6 +3,8 @@ import toast from 'react-hot-toast';
 import { Search, Plus, Minus, Trash2, Printer, MessageCircle, Bike, ShoppingBag, Check, X } from 'lucide-react';
 import { orders, menu, workdays, fmt } from '../lib/api';
 import { TYPE_LABELS, PAYMENT_LABELS, printTicket, shareWhatsApp } from '../lib/delivery';
+import { useAuth } from '../lib/auth';
+import VoidOrderModal from '../components/VoidOrderModal';
 
 // Mixto no se ofrece acá: pide repartir montos y para delivery alcanza con estos tres
 const PAYMENT_OPTIONS = ['efectivo', 'transferencia', 'tarjeta'];
@@ -12,6 +14,8 @@ const EMPTY_FORM = { order_type: 'delivery', customer_name: '', customer_address
 const timeOf = (s) => (s ? new Date(String(s).replace(' ', 'T')).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
 
 export default function DeliveryPage() {
+  const { isAdmin } = useAuth();
+  const [voiding, setVoiding] = useState(null); // pedido que se está por anular
   const [tab, setTab] = useState('new'); // 'new' | 'list'
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
@@ -262,13 +266,18 @@ export default function DeliveryPage() {
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="font-bold">#{o.id}</span>
                   <span className={`badge ${o.order_type === 'delivery' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'}`}>{TYPE_LABELS[o.order_type]}</span>
-                  {o.status === 'cancelled' && <span className="badge bg-gray-100 text-gray-500">Cancelado</span>}
+                  {o.status === 'cancelled' && (
+                    <span className="badge bg-gray-100 text-gray-500" title={o.voided_at ? `Anulado por ${o.voided_by}${o.void_reason ? ': ' + o.void_reason : ''}` : undefined}>
+                      {o.voided_at ? 'Anulado' : 'Cancelado'}
+                    </span>
+                  )}
                   {o.status === 'open' && <span className="badge bg-red-100 text-red-700">Sin cobrar</span>}
                   <span className="text-xs text-gray-400">{timeOf(o.created_at)} hs</span>
                 </div>
                 <p className="font-medium text-gray-900">{o.customer_name}</p>
                 {o.customer_address && <p className="text-sm text-gray-500">{o.customer_address}</p>}
                 {o.notes && <p className="text-xs text-gray-400 mt-0.5">Obs: {o.notes}</p>}
+                {o.voided_at && <p className="text-xs text-red-500 mt-0.5">Anulado por {o.voided_by}{o.void_reason ? `: ${o.void_reason}` : ''}</p>}
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold">{fmt.currency(o.total)}</p>
@@ -277,6 +286,9 @@ export default function DeliveryPage() {
               <div className="flex gap-2">
                 <button onClick={() => doPrint(o.id)} className="btn-secondary btn-sm flex items-center gap-1" aria-label={`Imprimir ticket del pedido ${o.id}`}><Printer className="w-4 h-4" /> Ticket</button>
                 <button onClick={() => doShare(o.id)} className="btn-secondary btn-sm flex items-center gap-1" aria-label={`Enviar por WhatsApp el pedido ${o.id}`}><MessageCircle className="w-4 h-4" /> WhatsApp</button>
+                {isAdmin && o.status === 'closed' && (
+                  <button onClick={() => setVoiding(o)} className="btn-secondary btn-sm text-red-600" aria-label={`Anular el pedido ${o.id}`}>Anular</button>
+                )}
                 {o.status === 'open' && (
                   <button onClick={() => cancelOpen(o)} className="btn-secondary btn-sm text-red-600" aria-label={`Cancelar el pedido ${o.id}`}>Cancelar pedido</button>
                 )}
@@ -284,6 +296,15 @@ export default function DeliveryPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {voiding && (
+        <VoidOrderModal
+          order={voiding}
+          label={`${TYPE_LABELS[voiding.order_type]} #${voiding.id} (${voiding.customer_name})`}
+          onClose={() => setVoiding(null)}
+          onDone={() => { setVoiding(null); loadList(); }}
+        />
       )}
 
       {done && (

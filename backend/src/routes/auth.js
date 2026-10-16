@@ -35,6 +35,31 @@ router.get('/me', requireAuth, (req, res) => {
   res.json(req.user);
 });
 
+// Cambiar la contraseña propia: pide la actual (por si alguien deja la sesión abierta).
+// Se responde 400 y no 401 si la actual está mal, porque un 401 cierra la sesión en el frontend.
+router.post('/password', requireAuth, (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: 'Completá la contraseña actual y la nueva' });
+  }
+  if (typeof new_password !== 'string' || new_password.length < 6) {
+    return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 6 caracteres' });
+  }
+  if (new_password.length > 72) {
+    return res.status(400).json({ error: 'La contraseña nueva es demasiado larga (máximo 72 caracteres)' });
+  }
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(req.user.id);
+  if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+  if (!bcrypt.compareSync(String(current_password), user.password_hash)) {
+    return res.status(400).json({ error: 'La contraseña actual no es correcta' });
+  }
+  if (current_password === new_password) {
+    return res.status(400).json({ error: 'La contraseña nueva tiene que ser distinta de la actual' });
+  }
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 10), user.id);
+  res.json({ ok: true });
+});
+
 // Listar usuarios (solo admin, para una futura pantalla de "Gestión de personal")
 router.get('/users', requireAuth, requireRole('admin'), (req, res) => {
   const users = db.prepare('SELECT id, username, role, full_name, active FROM users ORDER BY username').all();

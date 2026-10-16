@@ -94,7 +94,10 @@ function initializeDatabase() {
       work_day_id INTEGER REFERENCES work_days(id),
       order_type TEXT NOT NULL DEFAULT 'mesa' CHECK(order_type IN ('mesa', 'delivery', 'takeaway')),
       customer_name TEXT,
-      customer_address TEXT
+      customer_address TEXT,
+      voided_at TEXT,
+      voided_by TEXT,
+      void_reason TEXT
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -284,6 +287,13 @@ function initializeDatabase() {
   const hasCol = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col);
   if (!hasCol('orders', 'user_id')) db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)');
   if (!hasCol('stock_movements', 'order_id')) db.exec('ALTER TABLE stock_movements ADD COLUMN order_id INTEGER REFERENCES orders(id)');
+
+  // Anulación de pedidos ya cobrados: queda registrado cuándo, quién y por qué
+  if (!hasCol('orders', 'voided_at')) {
+    db.exec('ALTER TABLE orders ADD COLUMN voided_at TEXT');
+    db.exec('ALTER TABLE orders ADD COLUMN voided_by TEXT');
+    db.exec('ALTER TABLE orders ADD COLUMN void_reason TEXT');
+  }
 
   // Seed default tables if none exist
   const tableCount = db.prepare('SELECT COUNT(*) as count FROM tables').get();
