@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const { requireRole } = require('../middleware/auth');
 const { ensureWorkDay } = require('./workdays');
 
 const ORDER_TYPES = ['mesa', 'delivery', 'takeaway'];
@@ -216,6 +217,50 @@ router.post('/:id/close', (req, res) => {
   });
   closeOrder();
   res.json({ ok: true, order_id: req.params.id });
+});
+
+// Anular un pedido ya cobrado (solo admin): para cuando se cargó mal. No se borra nada:
+// queda como "cancelada" con quién, cuándo y por qué, deja de contar en las ventas, devuelve
+// a caja lo cobrado en efectivo y repone el stock que se descontó al cobrar.
+router.post('/:id/void', requireRole('admin'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Comanda no encontrada' });
+  if (order.voided_at) return res.status(409).json({ error: 'Este pedido ya fue anulado' });
+  if (order.status !== 'closed') {
+    return res.status(400).json({ error: 'Solo se pueden anular pedidos ya cobrados (los abiertos se cancelan)' });
+  }
+  const invoice = db.prepare('SELECT number FROM invoices WHERE order_id = ?').get(order.id);
+  if (invoice) {
+    return res.status(409).json({ error: `Este pedido tiene la factura ${invoice.number} emitida y no se puede anular` });
+  }
+  const reason = String(req.body?.reason ?? '').trim().slice(0, 200);
+
+  const result = db.transaction(() => {
+    db.prepare("UPDATE orders SET status = 'cancelled', voided_at = datetime('now','localtime'), voided_by = ?, void_reason = ? WHERE id = ?")
+      .run(req.user.username, reason || null, order.id);
+
+    // Caja: se saca lo que se había cobrado en efectivo (en la caja abierta; si no hay una, queda sin devolver)
+    const cashIn = db.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM cash_movements WHERE order_id = ? AND type = 'in'").get(order.id).total;
+    let cashReversed = 0;
+    if (cashIn > 0) {
+      const reg = db.prepare("SELECT id FROM cash_registers WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+      if (reg) {
+        db.prepare("INSERT INTO cash_movements (register_id, type, amount, description, order_id) VALUES (?, 'out', ?, ?, ?)")
+          .run(reg.id, cashIn, `Anulación ${orderLabel(order)}`, order.id);
+        cashReversed = cashIn;
+      }
+    }
+
+    // Stock: se devuelve lo que se descontó automáticamente al cobrar esta comanda
+    const used = db.prepare("SELECT stock_item_id, SUM(quantity) AS qty FROM stock_movements WHERE order_id = ? AND type = 'out' GROUP BY stock_item_id").all(order.id);
+    for (const u of used) {
+      db.prepare('UPDATE stock_items SET current_quantity = current_quantity + ? WHERE id = ?').run(u.qty, u.stock_item_id);
+      db.prepare("INSERT INTO stock_movements (stock_item_id, order_id, type, quantity, notes) VALUES (?, ?, 'in', ?, ?)")
+        .run(u.stock_item_id, order.id, u.qty, `Anulación ${orderLabel(order)}`);
+    }
+    return { cash_reversed: cashReversed, cash_pending: cashIn > 0 && cashReversed === 0 ? cashIn : 0, stock_restored: used.length };
+  })();
+  res.json({ ok: true, ...result });
 });
 
 // Cancel order

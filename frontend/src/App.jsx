@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast';
 import {
   LayoutGrid, UtensilsCrossed, BookOpen, Calendar,
-  Wallet, Truck, Package, BarChart3, Users, LogOut, Bike
+  Wallet, Truck, Package, BarChart3, Users, LogOut, Bike, KeyRound
 } from 'lucide-react';
 
 import { useAuth } from './lib/auth';
@@ -18,6 +18,7 @@ import StockPage from './pages/Stock';
 import DashboardPage from './pages/Dashboard';
 import UsersPage from './pages/Users';
 import DeliveryPage from './pages/Delivery';
+import ChangePasswordModal from './components/ChangePasswordModal';
 
 // adminOnly: coincide con las rutas que el backend restringe al rol 'admin'
 const NAV_ITEMS = [
@@ -53,6 +54,7 @@ export default function App() {
   const location = useLocation();
   const { user, loading, logout, isAdmin } = useAuth();
   const isOrderPage = location.pathname.startsWith('/order/');
+  const [showPassword, setShowPassword] = React.useState(false);
 
   // Verificando si el token guardado sigue siendo válido
   if (loading) {
@@ -108,6 +110,12 @@ export default function App() {
             <p className="text-sm font-medium truncate">{user.full_name || user.username}</p>
             <p className="text-xs text-gray-400 mb-3">{ROLE_LABELS[user.role] || user.role}</p>
             <button
+              onClick={() => setShowPassword(true)}
+              className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition-colors mb-2"
+            >
+              <KeyRound className="w-3.5 h-3.5" /> Cambiar contraseña
+            </button>
+            <button
               onClick={logout}
               className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition-colors"
             >
@@ -133,6 +141,7 @@ export default function App() {
         </Routes>
       </main>
 
+      {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {toaster}
     </div>
   );

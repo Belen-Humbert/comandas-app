@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { X, ChevronDown, ChevronRight, ChevronLeft, Users, ExternalLink } from 'lucide-react';
 import { orders, workdays, fmt } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import VoidOrderModal from './VoidOrderModal';
 
 const STATUS = {
   open: { label: 'En curso', cls: 'bg-blue-100 text-blue-700' },
@@ -37,6 +39,10 @@ const shortDay = (dateStr) => {
 // no por día del calendario: el cierre puede ser a las 00:50, 01:30, 02:00...
 export default function TableHistory({ table, onClose }) {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
+  const [voiding, setVoiding] = useState(null);
+  const [tick, setTick] = useState(0); // sube para volver a pedir las comandas (después de anular una)
+  const reload = () => setTick(t => t + 1);
   const [days, setDays] = useState(null); // jornadas, la más reciente primero
   const [idx, setIdx] = useState(0);
   const [list, setList] = useState(null); // null = cargando
@@ -63,14 +69,15 @@ export default function TableHistory({ table, onClose }) {
       .then(data => { if (!cancelled) setList(data); })
       .catch(e => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [table.id, wd?.id, days]);
+  }, [table.id, wd?.id, days, tick]);
 
   // Cerrar con Escape
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    // Con el aviso de anulación abierto, Escape no debe cerrar también el historial
+    const onKey = (e) => { if (e.key === 'Escape' && !voiding) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, voiding]);
 
   const summary = useMemo(() => {
     if (!list) return null;
@@ -195,7 +202,7 @@ export default function TableHistory({ table, onClose }) {
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className={`font-bold ${order.status === 'cancelled' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{fmt.currency(order.total)}</p>
-                    <span className={`badge ${st.cls}`}>{st.label}</span>
+                    <span className={`badge ${st.cls}`}>{order.voided_at ? 'Anulada' : st.label}</span>
                   </div>
                 </button>
 
@@ -219,6 +226,17 @@ export default function TableHistory({ table, onClose }) {
                         {dayLabel(order.closed_at) !== dayLabel(order.created_at) && <> del {dayLabel(order.closed_at)}</>}
                       </p>
                     )}
+                    {order.voided_at && (
+                      <p className="text-xs text-red-500 mt-1">Anulada por {order.voided_by}{order.void_reason ? `: ${order.void_reason}` : ''}</p>
+                    )}
+                    {isAdmin && order.status === 'closed' && (
+                      <button
+                        onClick={() => setVoiding(order)}
+                        className="mt-3 text-sm text-red-600 font-medium hover:underline"
+                      >
+                        Anular comanda
+                      </button>
+                    )}
                     {order.status === 'open' && (
                       <button
                         onClick={() => navigate(`/order/${order.id}`)}
@@ -234,6 +252,15 @@ export default function TableHistory({ table, onClose }) {
           })}
         </div>
       </div>
+
+      {voiding && (
+        <VoidOrderModal
+          order={voiding}
+          label={`${table.name} · comanda #${voiding.id}`}
+          onClose={() => setVoiding(null)}
+          onDone={() => { setVoiding(null); reload(); }}
+        />
+      )}
     </div>
   );
 }

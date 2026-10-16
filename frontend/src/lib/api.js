@@ -35,6 +35,7 @@ export const auth = {
   listUsers: () => api.get('/auth/users'),
   createUser: (data) => api.post('/auth/users', data),
   updateUser: (id, data) => api.put(`/auth/users/${id}`, data),
+  changePassword: (current_password, new_password) => api.post('/auth/password', { current_password, new_password }),
 };
 
 export const tables = {
@@ -71,6 +72,8 @@ export const orders = {
   deleteItem: (orderId, itemId) => api.delete(`/orders/${orderId}/items/${itemId}`),
   close: (id, data) => api.post(`/orders/${id}/close`, data),
   cancel: (id) => api.post(`/orders/${id}/cancel`),
+  // Anula un pedido ya cobrado (solo admin): repone stock y saca lo cobrado en efectivo de la caja
+  void: (id, reason) => api.post(`/orders/${id}/void`, { reason }),
   print: (id) => api.post(`/orders/${id}/print`),
 };
 
