@@ -168,7 +168,7 @@ router.get('/monthly', (req, res) => {
     SELECT o.table_number, MAX(o.table_zone) as zone, COUNT(*) as orders_count,
            COALESCE(SUM(o.persons_count),0) as persons, COALESCE(SUM(o.total),0) as revenue,
            COALESCE(AVG(o.total),0) as avg_ticket
-    FROM ${FROM} WHERE o.status='closed' AND strftime('%Y-%m', ${BD}) = ?
+    FROM ${FROM} WHERE o.status='closed' AND o.order_type = 'mesa' AND strftime('%Y-%m', ${BD}) = ?
     GROUP BY o.table_number ORDER BY revenue DESC, o.table_number
   `).all(month);
 

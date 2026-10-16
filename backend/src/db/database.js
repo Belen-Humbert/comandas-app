@@ -91,7 +91,10 @@ function initializeDatabase() {
       created_at TEXT DEFAULT (datetime('now','localtime')),
       closed_at TEXT,
       table_zone TEXT,
-      work_day_id INTEGER REFERENCES work_days(id)
+      work_day_id INTEGER REFERENCES work_days(id),
+      order_type TEXT NOT NULL DEFAULT 'mesa' CHECK(order_type IN ('mesa', 'delivery', 'takeaway')),
+      customer_name TEXT,
+      customer_address TEXT
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -265,6 +268,15 @@ function initializeDatabase() {
       'licuado', 'infusion', 'infusión', 'whisky', 'licor', 'aperitivo', 'champagne', 'espumante', 'fernet'];
     const upd = db.prepare("UPDATE menu_categories SET kind = 'bebida' WHERE lower(name) LIKE ?");
     words.forEach(w => upd.run(`%${w}%`));
+  }
+
+  // Pedidos de Delivery / Take Away: no tienen mesa; guardan el nombre y (en delivery) la dirección.
+  // Las comandas anteriores son todas de mesa (valor por defecto).
+  const orderCols2 = db.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
+  if (!orderCols2.includes('order_type')) {
+    db.exec("ALTER TABLE orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'mesa' CHECK(order_type IN ('mesa', 'delivery', 'takeaway'))");
+    db.exec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
+    db.exec('ALTER TABLE orders ADD COLUMN customer_address TEXT');
   }
 
   // Columnas agregadas con el descuento de stock y los usuarios: en bases que ya existían

@@ -64,6 +64,8 @@ export const orders = {
   list: (params) => api.get('/orders', { params }),
   get: (id) => api.get(`/orders/${id}`),
   create: (data) => api.post('/orders', data),
+  // Pedido de Delivery / Take Away (sin mesa); se cobra después con close()
+  createDelivery: (data) => api.post('/orders/delivery', data),
   addItems: (id, items) => api.post(`/orders/${id}/items`, items),
   updateItem: (orderId, itemId, data) => api.put(`/orders/${orderId}/items/${itemId}`, data),
   deleteItem: (orderId, itemId) => api.delete(`/orders/${orderId}/items/${itemId}`),

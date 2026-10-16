@@ -3,9 +3,16 @@ const router = express.Router();
 const db = require('../db/database');
 const { ensureWorkDay } = require('./workdays');
 
+const ORDER_TYPES = ['mesa', 'delivery', 'takeaway'];
+const TYPE_LABEL = { delivery: 'Delivery', takeaway: 'Take Away' };
+
+// Cómo se nombra una comanda en la caja, el stock, etc.: "Mesa 5", "Delivery #12", "Take Away #13"
+const orderLabel = (order) =>
+  order.order_type && order.order_type !== 'mesa' ? `${TYPE_LABEL[order.order_type]} #${order.id}` : `Mesa ${order.table_number}`;
+
 // Get all open orders
 router.get('/', (req, res) => {
-  const { status, date, table_id, work_day_id, limit } = req.query;
+  const { status, date, table_id, work_day_id, limit, type } = req.query;
   let query = `
     SELECT o.*, t.number as table_number_ref, t.name as table_name_ref,
            COUNT(oi.id) as item_count
@@ -17,6 +24,12 @@ router.get('/', (req, res) => {
   const where = [];
   if (status) { where.push('o.status = ?'); params.push(status); }
   if (date) { where.push("date(o.created_at) = ?"); params.push(date); }
+  if (type) {
+    const types = String(type).split(',');
+    if (!types.every(t => ORDER_TYPES.includes(t))) return res.status(400).json({ error: 'Tipo de comanda inválido' });
+    where.push(`o.order_type IN (${types.map(() => '?').join(',')})`);
+    params.push(...types);
+  }
   if (work_day_id) {
     const wid = Number(work_day_id);
     if (!Number.isInteger(wid)) return res.status(400).json({ error: 'Jornada inválida' });
@@ -78,6 +91,45 @@ router.post('/', (req, res) => {
     .run(result.lastInsertRowid, table_id);
 
   res.json({ id: result.lastInsertRowid });
+});
+
+// Nuevo pedido de Delivery / Take Away (sin mesa). Queda abierto con sus productos; después se cobra
+// con POST /:id/close, igual que una mesa (así caja y descuento de stock funcionan igual).
+// Los precios se toman del menú, no del pedido del cliente.
+const clean = (v, max) => String(v ?? '').trim().slice(0, max);
+router.post('/delivery', (req, res) => {
+  const { order_type, items } = req.body;
+  if (!['delivery', 'takeaway'].includes(order_type)) return res.status(400).json({ error: 'Tipo de pedido inválido' });
+  const name = clean(req.body.customer_name, 100);
+  const address = clean(req.body.customer_address, 200);
+  const notes = clean(req.body.notes, 500);
+  if (!name) return res.status(400).json({ error: 'El nombre de quien hace el pedido es obligatorio' });
+  if (order_type === 'delivery' && !address) return res.status(400).json({ error: 'La dirección de entrega es obligatoria' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'El pedido no tiene productos' });
+  if (items.length > 100) return res.status(400).json({ error: 'Demasiados productos en el pedido' });
+
+  const lines = [];
+  for (const it of items) {
+    const qty = Number(it.quantity);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 99) return res.status(400).json({ error: 'Cantidad inválida' });
+    const menuItem = db.prepare('SELECT * FROM menu_items WHERE id = ? AND available = 1').get(it.menu_item_id);
+    if (!menuItem) return res.status(400).json({ error: 'Hay un producto que ya no está disponible en el menú' });
+    lines.push({ menuItem, qty });
+  }
+
+  const create = db.transaction(() => {
+    const workDay = ensureWorkDay();
+    // persons_count 0: no son comensales de salón y no deben contar en "personas atendidas"
+    const id = db.prepare(`
+      INSERT INTO orders (table_id, table_number, persons_count, notes, table_zone, work_day_id, order_type, customer_name, customer_address)
+      VALUES (NULL, NULL, 0, ?, ?, ?, ?, ?, ?)
+    `).run(notes || null, order_type, workDay.id, order_type, name, order_type === 'delivery' ? address : null).lastInsertRowid;
+    const ins = db.prepare('INSERT INTO order_items (order_id, menu_item_id, name, quantity, unit_price) VALUES (?, ?, ?, ?, ?)');
+    for (const { menuItem, qty } of lines) ins.run(id, menuItem.id, menuItem.name, qty, menuItem.price);
+    updateOrderTotal(id);
+    return id;
+  });
+  res.json({ id: create() });
 });
 
 // Add items to order
@@ -157,7 +209,7 @@ router.post('/:id/close', (req, res) => {
           (mixed_payments?.efectivo || 0);
         if (amount > 0) {
           db.prepare('INSERT INTO cash_movements (register_id, type, amount, description, order_id) VALUES (?, ?, ?, ?, ?)')
-            .run(openRegister.id, 'in', amount, `Cobro Mesa ${order.table_number}`, order.id);
+            .run(openRegister.id, 'in', amount, `Cobro ${orderLabel(order)}`, order.id);
         }
       }
     }
