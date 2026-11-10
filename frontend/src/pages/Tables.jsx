@@ -12,7 +12,7 @@ import TableHistory from '../components/TableHistory';
 // en esas unidades lógicas (no en píxeles reales de cada pantalla).
 const CANVAS_W = 1100;
 const CANVAS_H = 640;
-const TABLE_SIZE = 96;
+const TABLE_SIZE = 72;
 const GAP = 16;
 const PAD = 16;
 const SNAP = 8; // al arrastrar, las mesas se alinean a una grilla de 8 para que queden prolijas
@@ -434,62 +434,74 @@ export default function TablesPage() {
                 const pos = positions[zone][table.id];
                 const dragging = draggingId === table.id;
                 return (
-                  <button
-                    key={table.id}
-                    onClick={(e) => {
-                      if (editMode) return;
-                      return deleteMode ? handleDeleteTable(e, table) : handleTableClick(table);
-                    }}
-                    onPointerDown={(e) => handlePointerDown(e, table)}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerCancel={handlePointerUp}
-                    style={{ left: pos.x, top: pos.y, width: TABLE_SIZE, height: TABLE_SIZE, touchAction: editMode ? 'none' : undefined }}
-                    className={`absolute rounded-xl border-2 flex flex-col items-center justify-center p-1.5 transition-shadow shadow-sm ${
-                      editMode
-                        ? `select-none cursor-grab ring-2 ring-offset-1 ring-gray-300 ${dragging ? 'z-20 shadow-xl cursor-grabbing' : ''}`
-                        : 'cursor-pointer hover:shadow-md active:scale-95'
-                    } ${deleteMode && table.status !== 'occupied' ? 'ring-2 ring-red-400 ring-offset-1' : ''} ${getTableColor(table)}`}
-                  >
-                    {deleteMode && table.status !== 'occupied' && (
-                      <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center">
-                        <X className="w-3 h-3 text-white" />
-                      </span>
-                    )}
-                    {!editMode && !deleteMode && (
-                      <span
-                        role="button"
-                        aria-label={`Historial de ${table.name}`}
-                        title="Ver historial de la mesa"
-                        onClick={(e) => { e.stopPropagation(); setHistoryTable(table); }}
-                        className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/15 hover:bg-black/30 flex items-center justify-center cursor-pointer"
-                      >
-                        <History className="w-3.5 h-3.5 text-white" />
-                      </span>
-                    )}
-                    {editMode && (
-                      <span
-                        role="button"
-                        title={`Pasar a ${table.zone === 'salon' ? 'Vereda' : 'Salón'}`}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => { e.stopPropagation(); moveToOtherZone(table); }}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-gray-900 hover:bg-gray-700 rounded-full flex items-center justify-center cursor-pointer shadow"
-                      >
-                        <ArrowLeftRight className="w-3 h-3 text-white" />
-                      </span>
-                    )}
-                    <span className="text-xl font-bold leading-none">{table.number}</span>
-                    <span className="text-xs font-medium opacity-90 mt-1 leading-none truncate w-full text-center px-0.5">{table.name}</span>
-                    {table.status === 'occupied' && (
-                      <div className="absolute bottom-1.5 left-0 right-0 flex justify-center gap-2 text-[11px] opacity-90">
-                        <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{table.persons_count}</span>
-                        {table.item_count > 0 && <span className="flex items-center gap-0.5"><Utensils className="w-3 h-3" />{table.item_count}</span>}
-                      </div>
-                    )}
-                    {table.status === 'free' && (
-                      <span className="text-[11px] opacity-75 mt-1 leading-none">{table.capacity} p.</span>
-                    )}
-                  </button>
+                  // Reemplaza el <button> de cada mesa en Tables.jsx.
+// Además, cambiá la constante:  const TABLE_SIZE = 72;
+
+<button
+  key={table.id}
+  onClick={(e) => {
+    if (editMode) return;
+    return deleteMode ? handleDeleteTable(e, table) : handleTableClick(table);
+  }}
+  onPointerDown={(e) => handlePointerDown(e, table)}
+  onPointerMove={handlePointerMove}
+  onPointerUp={handlePointerUp}
+  onPointerCancel={handlePointerUp}
+  style={{ left: pos.x, top: pos.y, width: TABLE_SIZE, height: TABLE_SIZE, touchAction: editMode ? 'none' : undefined }}
+  className={`absolute rounded-xl border-2 flex flex-col items-center justify-center p-1 gap-0.5 transition-shadow shadow-sm ${
+    editMode
+      ? `select-none cursor-grab ring-2 ring-offset-1 ring-gray-300 ${dragging ? 'z-20 shadow-xl cursor-grabbing' : ''}`
+      : 'cursor-pointer hover:shadow-md active:scale-95'
+  } ${deleteMode && table.status !== 'occupied' ? 'ring-2 ring-red-400 ring-offset-1' : ''} ${getTableColor(table)}`}
+>
+  {deleteMode && table.status !== 'occupied' && (
+    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center">
+      <X className="w-3 h-3 text-white" />
+    </span>
+  )}
+
+  {/* Historial: más chico (w-5) para no llegar hasta el número, que está centrado */}
+  {!editMode && !deleteMode && (
+    <span
+      role="button"
+      aria-label={`Historial de ${table.name}`}
+      title="Ver historial de la mesa"
+      onClick={(e) => { e.stopPropagation(); setHistoryTable(table); }}
+      className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-black/15 hover:bg-black/30 flex items-center justify-center cursor-pointer"
+    >
+      <History className="w-3 h-3 text-white" />
+    </span>
+  )}
+
+  {editMode && (
+    <span
+      role="button"
+      title={`Pasar a ${table.zone === 'salon' ? 'Vereda' : 'Salón'}`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); moveToOtherZone(table); }}
+      className="absolute -top-2 -right-2 w-6 h-6 bg-gray-900 hover:bg-gray-700 rounded-full flex items-center justify-center cursor-pointer shadow"
+    >
+      <ArrowLeftRight className="w-3 h-3 text-white" />
+    </span>
+  )}
+
+  {/* Todo el contenido va en flujo normal (sin absolute), apilado: no puede superponerse */}
+  <span className="text-lg font-bold leading-none">{table.number}</span>
+  <span className="text-[10px] font-medium opacity-90 leading-none truncate w-full text-center">{table.name}</span>
+
+  {table.status === 'occupied' && (
+    <div className="flex items-center justify-center gap-1.5 max-w-full text-[10px] leading-none opacity-90">
+      <span className="flex items-center gap-0.5"><Users className="w-3 h-3 shrink-0" />{table.persons_count}</span>
+      {table.item_count > 0 && (
+        <span className="flex items-center gap-0.5"><Utensils className="w-3 h-3 shrink-0" />{table.item_count}</span>
+      )}
+    </div>
+  )}
+
+  {table.status === 'free' && (
+    <span className="text-[10px] opacity-75 leading-none">{table.capacity} p.</span>
+  )}
+</button>
                 );
               })}
             </div>
