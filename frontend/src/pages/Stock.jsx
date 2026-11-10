@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { Plus, X, AlertTriangle, TrendingUp, TrendingDown, RefreshCw, Edit2, Trash2 } from 'lucide-react';
-import { stock, fmt } from '../lib/api';
+import { Plus, X, AlertTriangle, TrendingUp, TrendingDown, RefreshCw, Edit2, Trash2, UtensilsCrossed } from 'lucide-react';
+import { stock, menu, recipes, fmt } from '../lib/api';
 
 export default function StockPage() {
   const [items, setItems] = useState([]);
@@ -13,6 +13,12 @@ export default function StockPage() {
   const [editingItem, setEditingItem] = useState(null);
   const [itemForm, setItemForm] = useState({ name: '', unit: 'kg', current_quantity: '', min_quantity: '', cost_per_unit: '', category_id: '' });
   const [movForm, setMovForm] = useState({ type: 'in', quantity: '', notes: '' });
+
+  // "Agregar al menú": crea un producto de venta vinculado a este insumo
+  const [showMenuModal, setShowMenuModal] = useState(null);
+  const [menuCats, setMenuCats] = useState([]);
+  const [menuNames, setMenuNames] = useState([]);
+  const [menuForm, setMenuForm] = useState({ name: '', price: '', category_id: '', quantity: '1' });
 
   const load = async () => {
     const [its, cats, low] = await Promise.all([stock.items(), stock.categories(), stock.lowItems()]);
@@ -62,6 +68,39 @@ export default function StockPage() {
     setEditingItem(item);
     setItemForm({ name: item.name, unit: item.unit, current_quantity: item.current_quantity, min_quantity: item.min_quantity, cost_per_unit: item.cost_per_unit, category_id: item.category_id || '' });
     setShowItemModal(true);
+  };
+
+  const openMenuModal = async (item) => {
+    try {
+      const [cats, menuItems] = await Promise.all([menu.categories(), menu.items()]);
+      setMenuCats(cats);
+      setMenuNames(menuItems.map(i => i.name.trim().toLowerCase()));
+      setMenuForm({ name: item.name, price: '', category_id: '', quantity: '1' });
+      setShowMenuModal(item);
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleAddToMenu = async () => {
+    const name = menuForm.name.trim();
+    const price = parseFloat(menuForm.price);
+    const quantity = parseFloat(String(menuForm.quantity).replace(',', '.'));
+    if (!name) return toast.error('Nombre requerido');
+    if (menuForm.price === '' || !(price >= 0)) return toast.error('Precio requerido');
+    if (!menuForm.category_id) return toast.error('Elegí una categoría del menú');
+    if (!(quantity > 0)) return toast.error('La cantidad debe ser mayor a 0');
+
+    let created;
+    try {
+      created = await menu.createItem({ name, price, category_id: parseInt(menuForm.category_id), available: true });
+    } catch (e) { return toast.error(e.message); }
+
+    try {
+      await recipes.add({ menu_item_id: created.id, stock_item_id: showMenuModal.id, quantity_per_unit: quantity });
+      toast.success(`"${name}" agregado al menú`);
+    } catch (e) {
+      toast.error(`Se creó el producto pero falló la receta (${e.message}). Cargala desde Menú.`);
+    }
+    setShowMenuModal(null);
   };
 
   const UNITS = ['kg', 'g', 'litro', 'ml', 'unidad', 'docena', 'caja', 'botella', 'bolsa', 'lata'];
@@ -137,6 +176,7 @@ export default function StockPage() {
                   <div className="flex items-center gap-1">
                     <button onClick={() => { setShowMovModal(item); setMovForm({ type: 'in', quantity: '', notes: '' }); }} className="btn-success btn-sm flex items-center gap-1"><TrendingUp className="w-3 h-3" /> Ingreso</button>
                     <button onClick={() => { setShowMovModal(item); setMovForm({ type: 'out', quantity: '', notes: '' }); }} className="btn-secondary btn-sm flex items-center gap-1"><TrendingDown className="w-3 h-3" /> Egreso</button>
+                    <button onClick={() => openMenuModal(item)} className="p-2 hover:bg-amber-50 rounded-lg" title="Agregar al menú"><UtensilsCrossed className="w-4 h-4 text-amber-600" /></button>
                     <button onClick={() => openEdit(item)} className="p-2 hover:bg-gray-100 rounded-lg"><Edit2 className="w-4 h-4 text-gray-400" /></button>
                     <button onClick={async () => { await stock.deleteItem(item.id); load(); }} className="p-2 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4 text-red-400" /></button>
                   </div>
@@ -210,6 +250,51 @@ export default function StockPage() {
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowMovModal(null)} className="btn-secondary flex-1">Cancelar</button>
               <button onClick={handleMovement} className="btn-primary flex-1">Registrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add to Menu Modal */}
+      {showMenuModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-xl font-bold">Agregar al menú</h2>
+              <button onClick={() => setShowMenuModal(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Crea un producto de venta vinculado a <strong>{showMenuModal.name}</strong>. Cada unidad vendida descuenta {menuForm.quantity || '?'} {showMenuModal.unit} de este stock.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="label">Nombre en el menú *</label>
+                <input value={menuForm.name} onChange={e => setMenuForm(f => ({ ...f, name: e.target.value }))} className="input" autoFocus />
+                {menuNames.includes(menuForm.name.trim().toLowerCase()) && (
+                  <p className="text-xs text-amber-600 mt-1">Ya existe un producto con ese nombre en el Menú. Si seguís, quedaría duplicado.</p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Precio de venta *</label>
+                  <input type="number" value={menuForm.price} onChange={e => setMenuForm(f => ({ ...f, price: e.target.value }))} className="input" placeholder="0" />
+                </div>
+                <div>
+                  <label className="label">Categoría del menú *</label>
+                  <select value={menuForm.category_id} onChange={e => setMenuForm(f => ({ ...f, category_id: e.target.value }))} className="input">
+                    <option value="">Elegir...</option>
+                    {menuCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="label">Descuenta por cada unidad vendida ({showMenuModal.unit})</label>
+                <input type="number" step="any" min="0" value={menuForm.quantity} onChange={e => setMenuForm(f => ({ ...f, quantity: e.target.value }))} className="input" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowMenuModal(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={handleAddToMenu} className="btn-primary flex-1">Agregar al menú</button>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { Plus, Edit2, Trash2, X, Check, ToggleLeft, ToggleRight } from 'lucide-react';
-import { menu, fmt } from '../lib/api';
+import { Plus, Edit2, Trash2, X, Check, ToggleLeft, ToggleRight, ClipboardList } from 'lucide-react';
+import { menu, stock, recipes, fmt } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
 export default function MenuPage() {
@@ -16,6 +16,12 @@ export default function MenuPage() {
   const [showNewCat, setShowNewCat] = useState(false);
   const [itemForm, setItemForm] = useState({ name: '', description: '', price: '', category_id: '', available: true });
   const [catForm, setCatForm] = useState({ name: '', color: '#6366f1', kind: 'comida' });
+
+  // Receta del plato seleccionado (insumos de stock que se descuentan al venderlo)
+  const [recipeItem, setRecipeItem] = useState(null);
+  const [recipeLines, setRecipeLines] = useState([]);
+  const [stockItems, setStockItems] = useState([]);
+  const [recipeForm, setRecipeForm] = useState({ stock_item_id: '', quantity: '' });
 
   const load = async () => {
     const [cats, its] = await Promise.all([menu.categories(), menu.items()]);
@@ -51,6 +57,55 @@ export default function MenuPage() {
   const handleToggleAvailable = async (item) => {
     await menu.updateItem(item.id, { ...item, available: !item.available });
     load();
+  };
+
+  const loadRecipe = async (menuItemId) => {
+    setRecipeLines(await recipes.get(menuItemId));
+  };
+
+  const openRecipe = async (item) => {
+    try {
+      setRecipeItem(item);
+      setRecipeForm({ stock_item_id: '', quantity: '' });
+      const [lines, stockList] = await Promise.all([recipes.get(item.id), stock.items()]);
+      setRecipeLines(lines);
+      setStockItems(stockList);
+    } catch (e) { toast.error(e.message); setRecipeItem(null); }
+  };
+
+  const closeRecipe = () => { setRecipeItem(null); setRecipeLines([]); };
+
+  const handleAddIngredient = async () => {
+    const quantity = parseFloat(String(recipeForm.quantity).replace(',', '.'));
+    if (!recipeForm.stock_item_id) return toast.error('Elegí un insumo');
+    if (!(quantity > 0)) return toast.error('La cantidad debe ser mayor a 0');
+    try {
+      await recipes.add({
+        menu_item_id: recipeItem.id,
+        stock_item_id: parseInt(recipeForm.stock_item_id),
+        quantity_per_unit: quantity,
+      });
+      setRecipeForm({ stock_item_id: '', quantity: '' });
+      await loadRecipe(recipeItem.id);
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleUpdateIngredient = async (line, value) => {
+    const quantity = parseFloat(String(value).replace(',', '.'));
+    if (!(quantity > 0)) { toast.error('La cantidad debe ser mayor a 0'); return loadRecipe(recipeItem.id); }
+    if (quantity === line.quantity_per_unit) return;
+    try {
+      await recipes.update(line.id, { quantity_per_unit: quantity });
+      toast.success('Cantidad actualizada');
+      await loadRecipe(recipeItem.id);
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleDeleteIngredient = async (id) => {
+    try {
+      await recipes.remove(id);
+      await loadRecipe(recipeItem.id);
+    } catch (e) { toast.error(e.message); }
   };
 
   const handleSaveCat = async () => {
@@ -129,6 +184,7 @@ export default function MenuPage() {
                 <span className="font-bold text-amber-600 text-lg">{fmt.currency(item.price)}</span>
                 {isAdmin && (
                   <div className="flex items-center gap-1">
+                    <button onClick={() => openRecipe(item)} className="p-2 hover:bg-amber-50 rounded-lg text-amber-600" title="Receta (insumos de stock)"><ClipboardList className="w-4 h-4" /></button>
                     <button onClick={() => handleToggleAvailable(item)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" title={item.available ? 'Deshabilitar' : 'Habilitar'}>
                       {item.available ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5" />}
                     </button>
@@ -181,6 +237,64 @@ export default function MenuPage() {
               <button onClick={() => setShowNewItem(false)} className="btn-secondary flex-1">Cancelar</button>
               <button onClick={handleSaveItem} className="btn-primary flex-1">Guardar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Receta (insumos de stock del plato) */}
+      {recipeItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-xl font-bold truncate">Receta: {recipeItem.name}</h2>
+              <button onClick={closeRecipe}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Insumos que se descuentan del stock por cada unidad vendida.</p>
+
+            <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+              {recipeLines.map(line => (
+                <div key={`${line.id}-${line.quantity_per_unit}`} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                  <span className="flex-1 text-sm font-medium truncate">{line.stock_item_name}</span>
+                  <input
+                    type="number" step="any" min="0"
+                    defaultValue={line.quantity_per_unit}
+                    onBlur={e => handleUpdateIngredient(line, e.target.value)}
+                    className="input w-24 text-right"
+                    aria-label={`Cantidad de ${line.stock_item_name}`}
+                  />
+                  <span className="text-xs text-gray-500 w-14 truncate">{line.unit}</span>
+                  <button onClick={() => handleDeleteIngredient(line.id)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400" title="Quitar insumo"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+              {recipeLines.length === 0 && (
+                <p className="text-center text-gray-400 text-sm py-4">Sin insumos cargados: vender este item no descuenta stock.</p>
+              )}
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <label className="label">Agregar insumo</label>
+              <div className="flex gap-2">
+                <select value={recipeForm.stock_item_id} onChange={e => setRecipeForm(f => ({ ...f, stock_item_id: e.target.value }))} className="input flex-1">
+                  <option value="">Elegir insumo...</option>
+                  {stockItems
+                    .filter(si => !recipeLines.some(l => l.stock_item_id === si.id))
+                    .map(si => <option key={si.id} value={si.id}>{si.name} ({si.unit})</option>)}
+                </select>
+                <input
+                  type="number" step="any" min="0"
+                  value={recipeForm.quantity}
+                  onChange={e => setRecipeForm(f => ({ ...f, quantity: e.target.value }))}
+                  className="input w-24 text-right" placeholder="Cant."
+                  aria-label="Cantidad por unidad vendida"
+                />
+                <button onClick={handleAddIngredient} className="btn-primary"><Plus className="w-4 h-4" /></button>
+              </div>
+              {stockItems.length === 0 && (
+                <p className="text-xs text-gray-400 mt-2">Todavía no hay insumos en Stock. Cargalos primero en la sección Stock.</p>
+              )}
+            </div>
+
+            <button onClick={closeRecipe} className="btn-secondary w-full mt-5">Cerrar</button>
           </div>
         </div>
       )}

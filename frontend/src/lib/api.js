@@ -132,6 +132,14 @@ export const stock = {
   addMovement: (id, data) => api.post(`/stock/items/${id}/movements`, data),
 };
 
+// Recetas: qué insumos de stock consume cada plato del menú (solo admin)
+export const recipes = {
+  get: (menuItemId) => api.get(`/recipes/${menuItemId}`),
+  add: (data) => api.post('/recipes', data),
+  update: (id, data) => api.put(`/recipes/${id}`, data),
+  remove: (id) => api.delete(`/recipes/${id}`),
+};
+
 export const reports = {
   daily: (date) => api.get('/reports/daily', { params: { date } }),
   weekly: () => api.get('/reports/weekly'),
