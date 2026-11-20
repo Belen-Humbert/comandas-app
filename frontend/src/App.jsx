@@ -52,7 +52,7 @@ const toaster = (
 
 export default function App() {
   const location = useLocation();
-  const { user, loading, logout, isAdmin } = useAuth();
+  const { user, loading, logout, isAdmin, passwordChanged } = useAuth();
   const isOrderPage = location.pathname.startsWith('/order/');
   const [showPassword, setShowPassword] = React.useState(false);
 
@@ -71,6 +71,16 @@ export default function App() {
         <LoginPage />
         {toaster}
       </>
+    );
+  }
+
+  // Contraseña inicial: no se muestra nada de la app hasta que elija una nueva
+  if (user.must_change_password) {
+    return (
+      <div className="min-h-screen bg-gray-900">
+        <ChangePasswordModal forced onClose={passwordChanged} onLogout={logout} />
+        {toaster}
+      </div>
     );
   }
 

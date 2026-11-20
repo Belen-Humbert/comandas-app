@@ -12,7 +12,7 @@ router.post('/login', (req, res) => {
     return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(username);
+  const user = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(String(username));
   if (!user) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
 
   const valid = bcrypt.compareSync(password, user.password_hash);
@@ -26,7 +26,7 @@ router.post('/login', (req, res) => {
 
   res.json({
     token,
-    user: { id: user.id, username: user.username, role: user.role, full_name: user.full_name }
+    user: { id: user.id, username: user.username, role: user.role, full_name: user.full_name, must_change_password: !!user.must_change_password }
   });
 });
 
@@ -53,10 +53,13 @@ router.post('/password', requireAuth, (req, res) => {
   if (!bcrypt.compareSync(String(current_password), user.password_hash)) {
     return res.status(400).json({ error: 'La contraseña actual no es correcta' });
   }
+  if (new_password === 'admin123') {
+    return res.status(400).json({ error: 'Esa contraseña es la inicial y la conoce todo el mundo, elegí otra' });
+  }
   if (current_password === new_password) {
     return res.status(400).json({ error: 'La contraseña nueva tiene que ser distinta de la actual' });
   }
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 10), user.id);
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(bcrypt.hashSync(new_password, 10), user.id);
   res.json({ ok: true });
 });
 

@@ -288,6 +288,12 @@ function initializeDatabase() {
   if (!hasCol('orders', 'user_id')) db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)');
   if (!hasCol('stock_movements', 'order_id')) db.exec('ALTER TABLE stock_movements ADD COLUMN order_id INTEGER REFERENCES orders(id)');
 
+  // Contraseña inicial: quien todavía usa 'admin123' tiene que cambiarla al entrar
+  if (!hasCol('users', 'must_change_password')) db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0');
+  for (const u of db.prepare('SELECT id, password_hash FROM users WHERE must_change_password = 0').all()) {
+    if (bcrypt.compareSync('admin123', u.password_hash)) db.prepare('UPDATE users SET must_change_password = 1 WHERE id = ?').run(u.id);
+  }
+
   // Anulación de pedidos ya cobrados: queda registrado cuándo, quién y por qué
   if (!hasCol('orders', 'voided_at')) {
     db.exec('ALTER TABLE orders ADD COLUMN voided_at TEXT');
@@ -334,11 +340,12 @@ function initializeDatabase() {
     ['Carnes', 'Verduras', 'Lácteos', 'Bebidas', 'Almacén', 'Limpieza'].forEach(n => insertStockCat.run(n));
   }
 
-  // Seed default admin user — CAMBIAR esta contraseña apenas se pruebe por primera vez
+  // Seed default admin user (admin / admin123): el sistema obliga a cambiar esa contraseña al primer ingreso
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
   if (userCount.count === 0) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)')
+    // Nace con must_change_password = 1: el primer ingreso obliga a elegir otra contraseña
+    db.prepare('INSERT INTO users (username, password_hash, role, full_name, must_change_password) VALUES (?, ?, ?, ?, 1)')
       .run('admin', hash, 'admin', 'Administrador');
   }
 }

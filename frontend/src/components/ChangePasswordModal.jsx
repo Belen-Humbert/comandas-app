@@ -4,7 +4,8 @@ import { X, KeyRound } from 'lucide-react';
 import { auth } from '../lib/api';
 
 // Cambio de la contraseña propia: pide la actual, la nueva y repetir la nueva
-export default function ChangePasswordModal({ onClose }) {
+// forced: se usa con la contraseña inicial; no se puede cerrar hasta cambiarla (solo salir de la sesión)
+export default function ChangePasswordModal({ onClose, forced = false, onLogout }) {
   const [form, setForm] = useState({ current: '', next: '', repeat: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -31,13 +32,14 @@ export default function ChangePasswordModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={forced ? undefined : onClose}>
       <form onSubmit={submit} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Cambiar contraseña"
         className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold flex items-center gap-2"><KeyRound className="w-5 h-5 text-amber-500" /> Cambiar contraseña</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar"><X className="w-5 h-5 text-gray-400" /></button>
+          {!forced && <button type="button" onClick={onClose} aria-label="Cerrar"><X className="w-5 h-5 text-gray-400" /></button>}
         </div>
+        {forced && <p data-testid="pw-forced" className="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2.5 mb-4">Estás usando la contraseña inicial. Por seguridad tenés que elegir una nueva para poder seguir.</p>}
         <div className="space-y-3">
           <div>
             <label className="label" htmlFor="pw-current">Contraseña actual</label>
@@ -55,7 +57,9 @@ export default function ChangePasswordModal({ onClose }) {
         {error && <p role="alert" data-testid="pw-error" className="mt-3 text-sm bg-red-50 border border-red-200 text-red-700 rounded-lg p-2.5">{error}</p>}
         {!error && problem && (form.current || form.next || form.repeat) && <p data-testid="pw-hint" className="mt-3 text-xs text-gray-400">{problem}</p>}
         <div className="flex gap-3 mt-5">
-          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
+          {forced
+            ? <button type="button" onClick={onLogout} className="btn-secondary flex-1">Salir</button>
+            : <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancelar</button>}
           <button type="submit" disabled={!!problem || saving} data-testid="pw-submit" className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed">
             {saving ? 'Guardando...' : 'Guardar'}
           </button>
