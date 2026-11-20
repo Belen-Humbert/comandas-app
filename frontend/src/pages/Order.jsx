@@ -3,13 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Search, Plus, Minus, Trash2, Printer, CreditCard, X, Users, ChevronDown } from 'lucide-react';
 import { orders, menu, invoices, fmt } from '../lib/api';
-
-const PAYMENT_METHODS = [
-  { value: 'efectivo', label: 'Efectivo' },
-  { value: 'transferencia', label: 'Transferencia' },
-  { value: 'tarjeta', label: 'Tarjeta' },
-  { value: 'mixto', label: 'Mixto' },
-];
+import PaymentSplit, { initialPayLines, buildPayments, payIsValid } from '../components/PaymentSplit';
 
 export default function OrderPage() {
   const { id } = useParams();
@@ -22,10 +16,13 @@ export default function OrderPage() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [showClose, setShowClose] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('efectivo');
+  const [payLines, setPayLines] = useState(initialPayLines());
   const [selectedPerson, setSelectedPerson] = useState(0);
   const [invoiceData, setInvoiceData] = useState({ customer_name: '', customer_tax_id: '' });
   const searchRef = useRef(null);
+
+  // Cada vez que se abre el cobro se arranca con un solo pago por el total
+  useEffect(() => { if (showClose) setPayLines(initialPayLines()); }, [showClose]);
 
   const loadOrder = useCallback(async () => {
     try {
@@ -99,7 +96,7 @@ export default function OrderPage() {
 
   const handleClose = async () => {
     try {
-      await orders.close(id, { payment_method: paymentMethod });
+      await orders.close(id, { payments: buildPayments(order.total, payLines) });
       toast.success('Mesa cerrada');
       navigate('/');
     } catch (e) {
@@ -324,23 +321,12 @@ export default function OrderPage() {
             )}
 
             <div className="mb-4">
-              <label className="label">Forma de pago</label>
-              <div className="grid grid-cols-2 gap-2">
-                {PAYMENT_METHODS.map(m => (
-                  <button
-                    key={m.value}
-                    onClick={() => setPaymentMethod(m.value)}
-                    className={`py-2 px-3 rounded-lg border-2 text-sm font-medium transition-colors ${paymentMethod === m.value ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 hover:border-gray-300'}`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+              <PaymentSplit total={order.total} lines={payLines} onChange={setPayLines} />
             </div>
 
             <div className="flex gap-3">
               <button onClick={() => setShowClose(false)} className="btn-secondary flex-1">Cancelar</button>
-              <button onClick={handleClose} className="btn-success flex-1 flex items-center justify-center gap-1">
+              <button onClick={handleClose} disabled={!payIsValid(order.total, payLines)} data-testid="confirm-pay" className="btn-success flex-1 flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
                 <CreditCard className="w-4 h-4" /> Confirmar Pago
               </button>
             </div>

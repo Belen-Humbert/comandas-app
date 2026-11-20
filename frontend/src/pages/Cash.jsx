@@ -67,6 +67,9 @@ export default function CashPage() {
 
   const totalIn = register?.movements?.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0) || 0;
   const totalOut = register?.movements?.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0) || 0;
+  // "Movimientos manuales" son los que cargó una persona; los cobros en efectivo se registran solos (tienen order_id)
+  const manualIn = register?.movements?.filter(m => m.type === 'in' && !m.order_id).reduce((s, m) => s + m.amount, 0) || 0;
+  const manualOut = register?.movements?.filter(m => m.type === 'out' && !m.order_id).reduce((s, m) => s + m.amount, 0) || 0;
   const salesTotal = register?.sales?.reduce((s, row) => s + row.total, 0) || 0;
 
   const pettyBalance = pettyList.reduce((s, p) => s + (p.type === 'in' ? p.amount : -p.amount), 0);
@@ -119,13 +122,13 @@ export default function CashPage() {
                 <div className="card">
                   <p className="text-sm text-gray-500">Movimientos manuales</p>
                   <div className="flex gap-4 mt-1">
-                    <div><p className="text-xs text-green-600">Entradas</p><p className="font-bold text-green-600">{fmt.currency(totalIn)}</p></div>
-                    <div><p className="text-xs text-red-600">Salidas</p><p className="font-bold text-red-600">{fmt.currency(totalOut)}</p></div>
+                    <div><p className="text-xs text-green-600">Entradas</p><p className="font-bold text-green-600">{fmt.currency(manualIn)}</p></div>
+                    <div><p className="text-xs text-red-600">Salidas</p><p className="font-bold text-red-600">{fmt.currency(manualOut)}</p></div>
                   </div>
                 </div>
                 <div className="card bg-amber-50 border-amber-200">
                   <p className="text-sm text-amber-700">Efectivo esperado en caja</p>
-                  <p className="text-3xl font-bold text-amber-700">{fmt.currency(register.initial_amount + totalIn - totalOut + (register.sales?.find(s => s.payment_method === 'efectivo')?.total || 0))}</p>
+                  <p className="text-3xl font-bold text-amber-700">{fmt.currency(register.initial_amount + totalIn - totalOut)}</p>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => setShowMovementModal('in')} className="btn-success flex-1 btn-sm flex items-center justify-center gap-1"><TrendingUp className="w-4 h-4" /> Entrada</button>

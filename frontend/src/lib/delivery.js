@@ -9,6 +9,12 @@ export const PAYMENT_LABELS = { efectivo: 'Efectivo', transferencia: 'Transferen
 export const escapeHtml = (v) =>
   String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// "Efectivo" o, si pagó con varios métodos, "Efectivo $10.000 + Transferencia $10.000"
+export const paymentText = (order) =>
+  order.payments?.length > 1
+    ? order.payments.map(p => `${PAYMENT_LABELS[p.method] || p.method} ${fmt.currency(p.amount)}`).join(' + ')
+    : (PAYMENT_LABELS[order.payment_method] || order.payment_method || '-');
+
 // SQLite guarda "2026-10-15 21:30:00" (hora local del servidor)
 const when = (s) => {
   const d = s ? new Date(String(s).replace(' ', 'T')) : new Date();
@@ -36,7 +42,7 @@ export function buildTicketHTML(order) {
     <hr/>
     ${lines}
     <div class="total"><span>TOTAL</span><span>${escapeHtml(fmt.currency(order.total))}</span></div>
-    <p style="margin-top:8px">Pago: <strong>${escapeHtml(PAYMENT_LABELS[order.payment_method] || order.payment_method || '-')}</strong></p>
+    <p style="margin-top:8px">Pago: <strong>${escapeHtml(paymentText(order))}</strong></p>
     ${order.notes ? `<div class="obs">Obs: ${escapeHtml(order.notes)}</div>` : ''}
     <div class="footer">Gracias por su compra</div>
   </body></html>`;
@@ -50,7 +56,7 @@ export function buildWhatsAppText(order) {
   out.push('');
   (order.items || []).forEach(i => out.push(`${i.quantity} x ${i.name} - ${fmt.currency(i.quantity * i.unit_price)}`));
   out.push('', `*Total: ${fmt.currency(order.total)}*`);
-  out.push(`Pago: ${PAYMENT_LABELS[order.payment_method] || order.payment_method || '-'}`);
+  out.push(`Pago: ${paymentText(order)}`);
   if (order.notes) out.push('', `Obs: ${order.notes}`);
   return out.join('\n');
 }

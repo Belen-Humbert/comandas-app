@@ -2,14 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Search, Plus, Minus, Trash2, Printer, MessageCircle, Bike, ShoppingBag, Check, X } from 'lucide-react';
 import { orders, menu, workdays, fmt } from '../lib/api';
-import { TYPE_LABELS, PAYMENT_LABELS, printTicket, shareWhatsApp } from '../lib/delivery';
+import { TYPE_LABELS, PAYMENT_LABELS, paymentText, printTicket, shareWhatsApp } from '../lib/delivery';
 import { useAuth } from '../lib/auth';
 import VoidOrderModal from '../components/VoidOrderModal';
+import PaymentSplit, { initialPayLines, buildPayments, payIsValid } from '../components/PaymentSplit';
 
-// Mixto no se ofrece acá: pide repartir montos y para delivery alcanza con estos tres
-const PAYMENT_OPTIONS = ['efectivo', 'transferencia', 'tarjeta'];
-
-const EMPTY_FORM = { order_type: 'delivery', customer_name: '', customer_address: '', notes: '', payment_method: 'efectivo' };
+const EMPTY_FORM = { order_type: 'delivery', customer_name: '', customer_address: '', notes: '' };
 
 const timeOf = (s) => (s ? new Date(String(s).replace(' ', 'T')).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
 
@@ -23,6 +21,7 @@ export default function DeliveryPage() {
   const [query, setQuery] = useState('');
   const [cart, setCart] = useState({}); // { [menuItemId]: { item, qty } }
   const [form, setForm] = useState(EMPTY_FORM);
+  const [payLines, setPayLines] = useState(initialPayLines());
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(null); // pedido recién cargado (para imprimir / compartir)
   const [list, setList] = useState(null); // pedidos de la jornada (null = cargando)
@@ -71,7 +70,8 @@ export default function DeliveryPage() {
   const isDelivery = form.order_type === 'delivery';
   const missing = !form.customer_name.trim() ? 'Falta el nombre'
     : isDelivery && !form.customer_address.trim() ? 'Falta la dirección'
-    : lines.length === 0 ? 'Agregá productos al pedido' : null;
+    : lines.length === 0 ? 'Agregá productos al pedido'
+    : !payIsValid(total, payLines) ? 'El pago no coincide con el total' : null;
 
   const submit = async () => {
     if (missing || saving) return;
@@ -89,7 +89,7 @@ export default function DeliveryPage() {
       // Se cobra con la misma ruta que las mesas (caja, stock...). Si falla, no queda un pedido colgado.
       try {
         // notes: la ruta de cobro reemplaza las observaciones por lo que reciba, así que se vuelven a mandar
-        await orders.close(id, { payment_method: form.payment_method, notes: form.notes.trim() || null });
+        await orders.close(id, { payments: buildPayments(total, payLines), notes: form.notes.trim() || null });
       } catch (e) {
         await orders.cancel(id).catch(() => {});
         throw e;
@@ -97,6 +97,7 @@ export default function DeliveryPage() {
       setDone(await orders.get(id));
       setCart({});
       setForm(EMPTY_FORM);
+      setPayLines(initialPayLines());
       setQuery('');
     } catch (e) {
       toast.error(e.message);
@@ -230,17 +231,7 @@ export default function DeliveryPage() {
               <textarea id="d-notes" className="input" rows={2} maxLength={500} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Algún dato extra: sin cebolla, timbre roto, entre calles..." />
             </div>
 
-            <div>
-              <p className="label">Método de pago</p>
-              <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_OPTIONS.map(m => (
-                  <button key={m} onClick={() => set('payment_method', m)} aria-pressed={form.payment_method === m} data-testid={`pay-${m}`}
-                    className={`py-2 rounded-xl border text-sm font-medium ${form.payment_method === m ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                    {PAYMENT_LABELS[m]}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <PaymentSplit total={total} lines={payLines} onChange={setPayLines} />
 
             <div className="border-t border-gray-100 pt-3">
               <div className="flex items-center justify-between mb-3">
@@ -313,7 +304,7 @@ export default function DeliveryPage() {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h2 className="text-xl font-bold">Pedido #{done.id} cargado</h2>
-                <p className="text-sm text-gray-500">{TYPE_LABELS[done.order_type]} · {done.customer_name} · {fmt.currency(done.total)} ({PAYMENT_LABELS[done.payment_method]})</p>
+                <p className="text-sm text-gray-500">{TYPE_LABELS[done.order_type]} · {done.customer_name} · {fmt.currency(done.total)} ({paymentText(done)})</p>
               </div>
               <button onClick={() => setDone(null)} aria-label="Cerrar"><X className="w-5 h-5 text-gray-400" /></button>
             </div>

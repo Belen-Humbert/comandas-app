@@ -32,9 +32,14 @@ router.get('/daily', (req, res) => {
   `).get(date);
 
   const byPayment = db.prepare(`
-    SELECT o.payment_method, COUNT(*) as count, COALESCE(SUM(o.total),0) as total
-    FROM ${FROM} WHERE o.status='closed' AND ${BD} = ?
-    GROUP BY o.payment_method
+    SELECT p.method AS payment_method, COUNT(DISTINCT o.id) as count, COALESCE(SUM(p.amount),0) as total
+    FROM ${FROM} JOIN (
+      SELECT order_id, method, amount FROM order_payments
+      UNION ALL
+      SELECT id, payment_method, total FROM orders WHERE id NOT IN (SELECT order_id FROM order_payments)
+    ) p ON p.order_id = o.id
+    WHERE o.status='closed' AND ${BD} = ?
+    GROUP BY p.method
   `).all(date);
 
   const topItems = db.prepare(`
@@ -138,9 +143,14 @@ router.get('/monthly', (req, res) => {
   `).get(month);
 
   const byPayment = db.prepare(`
-    SELECT o.payment_method, COUNT(*) as count, COALESCE(SUM(o.total),0) as total
-    FROM ${FROM} WHERE o.status='closed' AND strftime('%Y-%m', ${BD}) = ?
-    GROUP BY o.payment_method
+    SELECT p.method AS payment_method, COUNT(DISTINCT o.id) as count, COALESCE(SUM(p.amount),0) as total
+    FROM ${FROM} JOIN (
+      SELECT order_id, method, amount FROM order_payments
+      UNION ALL
+      SELECT id, payment_method, total FROM orders WHERE id NOT IN (SELECT order_id FROM order_payments)
+    ) p ON p.order_id = o.id
+    WHERE o.status='closed' AND strftime('%Y-%m', ${BD}) = ?
+    GROUP BY p.method
   `).all(month);
 
   const topItems = db.prepare(`

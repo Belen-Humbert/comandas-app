@@ -288,6 +288,29 @@ function initializeDatabase() {
   if (!hasCol('orders', 'user_id')) db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)');
   if (!hasCol('stock_movements', 'order_id')) db.exec('ALTER TABLE stock_movements ADD COLUMN order_id INTEGER REFERENCES orders(id)');
 
+  // Pagos de cada comanda: una comanda se puede pagar con varios métodos (ej. mitad efectivo, mitad
+  // transferencia). Cada fila es "cuánto se pagó y con qué". La suma de las filas = total de la comanda.
+  const hadPayments = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='order_payments'").get();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES orders(id),
+      method TEXT NOT NULL CHECK(method IN ('efectivo', 'transferencia', 'tarjeta')),
+      amount REAL NOT NULL CHECK(amount > 0),
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(order_id);
+  `);
+  if (!hadPayments) {
+    // Comandas cobradas antes de este cambio con un solo método: se les crea su pago por el total.
+    // Las que eran "mixto" no tienen desglose guardado, así que quedan sin filas (los reportes las muestran como "mixto").
+    db.exec(`
+      INSERT INTO order_payments (order_id, method, amount)
+      SELECT id, payment_method, total FROM orders
+      WHERE payment_method IN ('efectivo', 'transferencia', 'tarjeta') AND total > 0 AND closed_at IS NOT NULL
+    `);
+  }
+
   // Anulación de pedidos ya cobrados: queda registrado cuándo, quién y por qué
   if (!hasCol('orders', 'voided_at')) {
     db.exec('ALTER TABLE orders ADD COLUMN voided_at TEXT');

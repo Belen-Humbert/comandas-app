@@ -67,7 +67,8 @@ router.get('/:id', (req, res) => {
     WHERE oi.order_id = ?
     ORDER BY oi.id
   `).all(req.params.id);
-  res.json({ ...order, items });
+  const payments = db.prepare('SELECT method, amount FROM order_payments WHERE order_id = ? ORDER BY id').all(req.params.id);
+  res.json({ ...order, items, payments });
 });
 
 // Open new order
@@ -174,17 +175,53 @@ router.delete('/:id/items/:itemId', (req, res) => {
   res.json({ ok: true });
 });
 
+// Métodos de pago posibles. Una comanda se paga con uno o varios: [{ method, amount }, ...]
+// y la suma tiene que dar justo el total.
+const PAY_METHODS = ['efectivo', 'transferencia', 'tarjeta'];
+const money = (n) => `$${Number(n).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
+
+function parsePayments(body, total) {
+  let raw = body.payments;
+  if (raw === undefined && body.payment_method) raw = [{ method: body.payment_method, amount: total }]; // un solo método por el total
+  if (!Array.isArray(raw) || raw.length === 0) return { error: 'Elegí cómo se paga la comanda' };
+  if (raw.length > 10) return { error: 'Demasiadas formas de pago' };
+
+  const byMethod = new Map(); // si repiten un método (2 de efectivo), se juntan en uno
+  for (const p of raw) {
+    if (!PAY_METHODS.includes(p?.method)) return { error: 'Forma de pago inválida' };
+    const amount = Math.round(Number(p.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) return { error: 'Cada pago tiene que tener un monto mayor a cero' };
+    byMethod.set(p.method, Math.round(((byMethod.get(p.method) || 0) + amount) * 100) / 100);
+  }
+  const payments = [...byMethod].map(([method, amount]) => ({ method, amount }));
+  const paid = Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100;
+  if (Math.abs(paid - total) > 0.005) {
+    return { error: `Los pagos suman ${money(paid)} y el total es ${money(total)}. ${paid < total ? `Faltan ${money(total - paid)}` : `Sobran ${money(paid - total)}`}.` };
+  }
+  return { payments };
+}
+
 // Close order (pay)
 router.post('/:id/close', (req, res) => {
-  const { payment_method, notes, mixed_payments } = req.body;
+  const { notes } = req.body;
   const order = db.prepare("SELECT * FROM orders WHERE id = ? AND status = 'open'").get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Comanda no encontrada o ya cerrada' });
+  if (!(order.total > 0)) return res.status(400).json({ error: 'La comanda no tiene productos para cobrar' });
+
+  const parsed = parsePayments(req.body, order.total);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { payments } = parsed;
+  // En la comanda queda el método (o "mixto" si fueron varios); el detalle está en order_payments
+  const summaryMethod = payments.length === 1 ? payments[0].method : 'mixto';
 
   const closeOrder = db.transaction(() => {
-    db.prepare("UPDATE orders SET status='closed', closed_at=datetime('now','localtime'), payment_method=?, notes=? WHERE id=?")
-      .run(payment_method, notes, req.params.id);
+    db.prepare("UPDATE orders SET status='closed', closed_at=datetime('now','localtime'), payment_method=?, notes=COALESCE(?, notes) WHERE id=?")
+      .run(summaryMethod, notes ?? null, req.params.id);
     db.prepare("UPDATE tables SET status='free', current_order_id=NULL WHERE id=?")
       .run(order.table_id);
+
+    const insPay = db.prepare('INSERT INTO order_payments (order_id, method, amount) VALUES (?, ?, ?)');
+    for (const p of payments) insPay.run(order.id, p.method, p.amount);
 
     // Descontar stock según la receta de cada ítem vendido
     const soldItems = db.prepare('SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?').all(req.params.id);
@@ -202,16 +239,13 @@ router.post('/:id/close', (req, res) => {
       }
     }
 
-    // Register cash movement for efectivo payments
-    if (payment_method === 'efectivo' || payment_method === 'mixto') {
+    // A la caja entra solo la parte pagada en efectivo
+    const cash = payments.find(p => p.method === 'efectivo');
+    if (cash) {
       const openRegister = db.prepare("SELECT id FROM cash_registers WHERE status='open' ORDER BY id DESC LIMIT 1").get();
       if (openRegister) {
-        const amount = payment_method === 'efectivo' ? order.total :
-          (mixed_payments?.efectivo || 0);
-        if (amount > 0) {
-          db.prepare('INSERT INTO cash_movements (register_id, type, amount, description, order_id) VALUES (?, ?, ?, ?, ?)')
-            .run(openRegister.id, 'in', amount, `Cobro ${orderLabel(order)}`, order.id);
-        }
+        db.prepare('INSERT INTO cash_movements (register_id, type, amount, description, order_id) VALUES (?, ?, ?, ?, ?)')
+          .run(openRegister.id, 'in', cash.amount, `Cobro ${orderLabel(order)}`, order.id);
       }
     }
   });

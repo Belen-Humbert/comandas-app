@@ -14,10 +14,15 @@ router.get('/registers/current', (req, res) => {
 
   const movements = db.prepare('SELECT * FROM cash_movements WHERE register_id=? ORDER BY created_at DESC').all(register.id);
   const sales = db.prepare(`
-    SELECT SUM(o.total) as total, COUNT(*) as count, o.payment_method
+    SELECT p.method AS payment_method, SUM(p.amount) AS total, COUNT(DISTINCT o.id) AS count
     FROM orders o
+    JOIN (
+      SELECT order_id, method, amount FROM order_payments
+      UNION ALL
+      SELECT id, payment_method, total FROM orders WHERE id NOT IN (SELECT order_id FROM order_payments)
+    ) p ON p.order_id = o.id
     WHERE o.status='closed' AND datetime(o.closed_at) >= datetime(?)
-    GROUP BY o.payment_method
+    GROUP BY p.method
   `).all(register.opened_at);
 
   res.json({ ...register, movements, sales });
