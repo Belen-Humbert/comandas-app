@@ -64,8 +64,18 @@ export default function OrderPage() {
       await orders.addItems(id, [{ menu_item_id: item.id, name: item.name, unit_price: item.price, quantity: 1, person_number: selectedPerson }]);
       await loadOrder();
     } catch (e) {
-      toast.error(e.message);
+      await onEditError(e);
     }
+  };
+
+  // Si falla una edición, se revisa si la comanda ya la cobró/canceló otra persona: en ese caso se sale
+  const onEditError = async (e) => {
+    toast.error(e.message);
+    try {
+      const fresh = await orders.get(id);
+      if (fresh.status !== 'open') navigate('/');
+      else setOrder(fresh);
+    } catch { /* se queda en la pantalla */ }
   };
 
   const updateQty = async (item, delta) => {
@@ -74,7 +84,7 @@ export default function OrderPage() {
       await orders.updateItem(id, item.id, { quantity: newQty, notes: item.notes, person_number: item.person_number });
       await loadOrder();
     } catch (e) {
-      toast.error(e.message);
+      await onEditError(e);
     }
   };
 
@@ -83,7 +93,7 @@ export default function OrderPage() {
       await orders.deleteItem(id, itemId);
       await loadOrder();
     } catch (e) {
-      toast.error(e.message);
+      await onEditError(e);
     }
   };
 
@@ -274,7 +284,7 @@ export default function OrderPage() {
               Factura
             </button>
           </div>
-          <button onClick={() => setShowClose(true)} className="btn-primary w-full mt-2 flex items-center justify-center gap-2">
+          <button onClick={async () => { await loadOrder(); setShowClose(true); }} className="btn-primary w-full mt-2 flex items-center justify-center gap-2">
             <CreditCard className="w-4 h-4" /> Cerrar Mesa
           </button>
         </div>
