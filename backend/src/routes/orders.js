@@ -154,21 +154,35 @@ router.post('/:id/items', (req, res) => {
   res.json({ ok: true });
 });
 
+// Los productos solo se pueden tocar mientras la comanda está abierta: una vez cobrada (o cancelada)
+// el total ya quedó en caja y en las estadísticas, y cambiarlo dejaría los números desparejos.
+// Pasa, por ejemplo, si otro mozo cobró la mesa y esta pantalla todavía estaba abierta.
+const requireOpenOrder = (req, res, next) => {
+  const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Comanda no encontrada' });
+  if (order.status !== 'open') {
+    return res.status(409).json({ error: 'Esta comanda ya fue cobrada o cancelada y no se puede modificar. Actualizá la pantalla.' });
+  }
+  next();
+};
+
 // Update order item
-router.put('/:id/items/:itemId', (req, res) => {
-  const { quantity, notes, person_number } = req.body;
+router.put('/:id/items/:itemId', requireOpenOrder, (req, res) => {
+  const { notes, person_number } = req.body;
+  const quantity = Number(req.body.quantity);
+  if (!Number.isInteger(quantity) || quantity > 99) return res.status(400).json({ error: 'Cantidad inválida' });
   if (quantity <= 0) {
     db.prepare('DELETE FROM order_items WHERE id = ? AND order_id = ?').run(req.params.itemId, req.params.id);
   } else {
     db.prepare('UPDATE order_items SET quantity=?, notes=?, person_number=? WHERE id=? AND order_id=?')
-      .run(quantity, notes, person_number, req.params.itemId, req.params.id);
+      .run(quantity, notes ?? null, person_number ?? 0, req.params.itemId, req.params.id);
   }
   updateOrderTotal(req.params.id);
   res.json({ ok: true });
 });
 
 // Delete order item
-router.delete('/:id/items/:itemId', (req, res) => {
+router.delete('/:id/items/:itemId', requireOpenOrder, (req, res) => {
   db.prepare('DELETE FROM order_items WHERE id = ? AND order_id = ?').run(req.params.itemId, req.params.id);
   updateOrderTotal(req.params.id);
   res.json({ ok: true });
